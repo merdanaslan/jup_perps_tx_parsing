@@ -2368,9 +2368,9 @@ function getAssetNameFromCustody(custodyPubkey: string | undefined): string {
  */
 
 // ====== CONFIGURATION ======
-const FROM_DATE = "09.04.2025"; // Start date - where to begin analysis (older date)
-const TO_DATE = "10.04.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
-const WALLET_ADDRESS = "BNDvcP8rVZrNn7xDBHN8jxUh9RKpMB4TFMc42ia3wZvt"; // Wallet to analyze
+const FROM_DATE = "07.03.2025"; // Start date - where to begin analysis (older date)
+const TO_DATE = "07.06.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
+const WALLET_ADDRESS = "Fvy3Mn34i9x9v6XAoAPXGeqH7vPDPHckGNpwLgSPHW5S"; // Wallet to analyze
 // ============================
 
 // Run the example with date support and wallet address
