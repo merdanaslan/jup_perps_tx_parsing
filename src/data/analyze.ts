@@ -1708,12 +1708,6 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
   if (trade.entryPrice > 0) {
     const notionalSize = displaySize / trade.entryPrice;
     console.log(`Notional Size: ${notionalSize.toFixed(6)} ${trade.asset || ''}`);
-    
-    // Also show max notional size if different
-    if (trade.maxSize && trade.maxSize !== displaySize) {
-      const maxNotionalSize = trade.maxSize / trade.entryPrice;
-      console.log(`Max Notional Size: ${maxNotionalSize.toFixed(6)} ${trade.asset || ''}`);
-    }
   }
   
   console.log(`Collateral: $${trade.collateralUsd.toFixed(2)}`);
@@ -2368,8 +2362,8 @@ function getAssetNameFromCustody(custodyPubkey: string | undefined): string {
  */
 
 // ====== CONFIGURATION ======
-const FROM_DATE = "07.03.2025"; // Start date - where to begin analysis (older date)
-const TO_DATE = "07.06.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
+const FROM_DATE = "29.05.2025"; // Start date - where to begin analysis (older date)
+const TO_DATE = "08.06.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
 const WALLET_ADDRESS = "Fvy3Mn34i9x9v6XAoAPXGeqH7vPDPHckGNpwLgSPHW5S"; // Wallet to analyze
 // ============================
 
