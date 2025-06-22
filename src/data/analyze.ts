@@ -1359,8 +1359,69 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
     return trade;
   };
 
+  // Function to calculate weighted average entry and exit prices
+  const calculateWeightedAverages = (trade: ITrade) => {
+    let totalEntryValue = 0;
+    let totalEntrySize = 0;
+    let totalExitValue = 0;
+    let totalExitSize = 0;
+
+    // Process all events to calculate weighted averages
+    trade.events.forEach(evt => {
+      if (!evt?.event) return;
+      
+      const eventName = evt.event.name;
+      const eventData = evt.event.data;
+      
+      // Handle increase events for weighted average entry price
+      if (eventName === 'IncreasePositionEvent' || eventName === 'InstantIncreasePositionEvent') {
+        const sizeUsdDelta = parseUsdValue(eventData.sizeUsdDelta || '0');
+        const price = parseUsdValue(eventData.price || '0');
+        
+        if (sizeUsdDelta > 0 && price > 0) {
+          totalEntryValue += sizeUsdDelta * price;
+          totalEntrySize += sizeUsdDelta;
+        }
+      }
+      
+      // Handle decrease events for weighted average exit price
+      if (eventName === 'DecreasePositionEvent' || eventName === 'InstantDecreasePositionEvent') {
+        const sizeUsdDelta = parseUsdValue(eventData.sizeUsdDelta || '0');
+        const price = parseUsdValue(eventData.price || '0');
+        
+        if (sizeUsdDelta > 0 && price > 0) {
+          totalExitValue += sizeUsdDelta * price;
+          totalExitSize += sizeUsdDelta;
+        }
+      }
+      
+      // Handle liquidation events for weighted average exit price
+      if (eventName === 'LiquidateFullPositionEvent') {
+        const positionSizeUsd = parseUsdValue(eventData.positionSizeUsd || '0');
+        const price = parseUsdValue(eventData.price || '0');
+        
+        if (positionSizeUsd > 0 && price > 0) {
+          totalExitValue += positionSizeUsd * price;
+          totalExitSize += positionSizeUsd;
+        }
+      }
+    });
+
+    // Calculate and update weighted average entry price
+    if (totalEntrySize > 0) {
+      trade.entryPrice = totalEntryValue / totalEntrySize;
+    }
+
+    // Calculate and update weighted average exit price
+    if (totalExitSize > 0) {
+      trade.exitPrice = totalExitValue / totalExitSize;
+    }
+
+    return trade;
+  };
+
   // Convert maps to arrays for return
-  const activeTradesArray = Array.from(activeTrades.values()).map(sortTradeEvents);
+  const activeTradesArray = Array.from(activeTrades.values()).map(trade => calculateWeightedAverages(sortTradeEvents(trade)));
   
   // Sort completed trades by recency (newest first)
   completedTrades.sort((a, b) => {
@@ -1371,7 +1432,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
   
   return {
     activeTrades: activeTradesArray,
-    completedTrades: completedTrades.map(sortTradeEvents),
+    completedTrades: completedTrades.map(trade => calculateWeightedAverages(sortTradeEvents(trade))),
   };
 }
 
@@ -2361,9 +2422,9 @@ function getAssetNameFromCustody(custodyPubkey: string | undefined): string {
  * Note: FROM_DATE must be older (earlier) than TO_DATE for a valid chronological range
  */
 
-// ====== CONFIGURATION ======
-const FROM_DATE = "29.05.2025"; // Start date - where to begin analysis (older date)
-const TO_DATE = "08.06.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
+// ====== CONFIGURATION ====== 
+const FROM_DATE = "10.05.2025"; // Start date - where to begin analysis (older date)
+const TO_DATE = "20.05.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
 const WALLET_ADDRESS = "Fvy3Mn34i9x9v6XAoAPXGeqH7vPDPHckGNpwLgSPHW5S"; // Wallet to analyze
 // ============================
 
