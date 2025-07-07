@@ -12,7 +12,6 @@ import { PublicKey } from "@solana/web3.js";
 import { Perpetuals } from "../idl/jupiter-perpetuals-idl";
 import { BN } from "@coral-xyz/anchor";
 import { BNToUSDRepresentation } from "../utils";
-import { createHash } from "crypto";
 
 // Position PDA generation functions (imported from generate-position-and-position-request-pda.ts)
 function generatePositionPda({
@@ -62,25 +61,36 @@ function getAssetNameFromCustodyPda(custodyPubkey: string): string {
 
 // Generate deterministic 5-character alphanumeric trade ID
 function generateTradeId(positionKey: string, firstEventTimestamp: string): string {
-  // Create deterministic input by combining position key and timestamp
-  const input = `${positionKey}${firstEventTimestamp}`;
+  // Step 1: Combine position key + timestamp into one string
+  const source = `${positionKey}${firstEventTimestamp}`;
+  // Example: "76USLRvRMwDoGsK2Bj4RXV2CnuAUxgpVhJy7496Fz4M12025-06-05T14:38:45.000Z"
   
-  // Generate SHA-256 hash
-  const hash = createHash('sha256').update(input).digest('hex');
+  let hash = 0;
   
-  // Convert to alphanumeric using only uppercase letters and numbers for readability
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let result = '';
-  
-  // Use first 20 characters of hex hash to generate 5-character ID
-  for (let i = 0; i < 5; i++) {
-    // Take 4 hex characters and convert to number, then mod by chars length
-    const hexGroup = hash.substr(i * 4, 4);
-    const num = parseInt(hexGroup, 16);
-    result += chars[num % chars.length];
+  // Step 2: Loop through each character and create a numeric hash
+  for (let i = 0; i < source.length; i++) {
+    // Get ASCII code of character (e.g., 'A' = 65, '1' = 49)
+    const charCode = source.charCodeAt(i);
+    
+    // Mathematical formula to create hash:
+    // - Shift hash left by 5 bits (multiply by 32)
+    // - Subtract original hash 
+    // - Add character code
+    // - Keep result as 32-bit integer
+    hash = ((hash << 5) - hash + charCode) & 0xffffffff;
   }
   
-  return result;
+  // Step 3: Convert negative numbers to positive
+  const positiveHash = Math.abs(hash);
+  // Example: 1847392847
+  
+  // Step 4: Convert to base36 (uses 0-9 and a-z = 36 characters)
+  const base36 = positiveHash.toString(36);
+  // Example: "q7k9m2x"
+  
+  // Step 5: Take last 5 characters and make uppercase
+  return base36.slice(-5).toUpperCase();
+  // Example: "Q7K9M"
 }
 
 // Generate all possible position PDAs for a wallet
