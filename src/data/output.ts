@@ -12,6 +12,7 @@ import { PublicKey } from "@solana/web3.js";
 import { Perpetuals } from "../idl/jupiter-perpetuals-idl";
 import { BN } from "@coral-xyz/anchor";
 import { BNToUSDRepresentation } from "../utils";
+import { createHash } from "crypto";
 
 // Position PDA generation functions (imported from generate-position-and-position-request-pda.ts)
 function generatePositionPda({
@@ -57,6 +58,29 @@ function getAssetNameFromCustodyPda(custodyPubkey: string): string {
     default:
       return "Unknown";
   }
+}
+
+// Generate deterministic 5-character alphanumeric trade ID
+function generateTradeId(positionKey: string, firstEventTimestamp: string): string {
+  // Create deterministic input by combining position key and timestamp
+  const input = `${positionKey}${firstEventTimestamp}`;
+  
+  // Generate SHA-256 hash
+  const hash = createHash('sha256').update(input).digest('hex');
+  
+  // Convert to alphanumeric using only uppercase letters and numbers for readability
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let result = '';
+  
+  // Use first 20 characters of hex hash to generate 5-character ID
+  for (let i = 0; i < 5; i++) {
+    // Take 4 hex characters and convert to number, then mod by chars length
+    const hexGroup = hash.substr(i * 4, 4);
+    const num = parseInt(hexGroup, 16);
+    result += chars[num % chars.length];
+  }
+  
+  return result;
 }
 
 // Generate all possible position PDAs for a wallet
@@ -1102,10 +1126,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
     }
   });
 
-  // Maps to track active trades and lifecycle counters
+  // Maps to track active trades by position key (since each position can only have one active trade)
   const activeTrades: Map<string, ITrade> = new Map();
   const completedTrades: ITrade[] = [];
-  const lifecycleCounters: Map<string, number> = new Map();
 
   // Process each execution event
   for (const eventWithTx of positionEvents) {
@@ -1117,17 +1140,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
     
     // Get position key
     const positionKey = data.positionKey;
-    
-    // Initialize lifecycle counter if needed
-    if (!lifecycleCounters.has(positionKey)) {
-      lifecycleCounters.set(positionKey, 0);
-    }
-    
-    const lifecycleCount = lifecycleCounters.get(positionKey) || 0;
-    const tradeId = `${positionKey}-${lifecycleCount}`;
 
     // Check if we have an active trade for this position
-    const activeTrade = activeTrades.get(tradeId);
+    const activeTrade = activeTrades.get(positionKey);
 
     // Get all events with the same timestamp to include auxiliary events
     const allEventsAtTimestamp = eventsByTimestamp.get(tx.blockTime || '') || [];
@@ -1144,6 +1159,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       if (!activeTrade) {
         // Get asset symbol from the custody address
         const assetSymbol = getAssetNameFromCustody(data.positionCustody || "");
+        
+        // Generate deterministic trade ID using position key and first event timestamp
+        const tradeId = generateTradeId(positionKey, tx.blockTime || new Date().toISOString());
         
         // This is a new trade
         const newTrade: ITrade = {
@@ -1166,7 +1184,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
         // Add all events with the same timestamp (including preswap and swap events)
         newTrade.events = allEventsAtTimestamp;
         
-        activeTrades.set(tradeId, newTrade);
+        activeTrades.set(positionKey, newTrade);
       } else {
         // This is adding to an existing position
         const newCollateralUsd = activeTrade.collateralUsd + collateralUsdDelta;
@@ -1244,10 +1262,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
         activeTrade.sizeUsd = 0; // Set size to 0 as it's fully closed
         
         completedTrades.push({ ...activeTrade });
-        activeTrades.delete(tradeId);
-        
-        // Increment lifecycle counter for this position
-        lifecycleCounters.set(positionKey, lifecycleCount + 1);
+        activeTrades.delete(positionKey);
       } else {
         // This is a partial decrease
         activeTrade.sizeUsd -= sizeUsdDelta;
@@ -1298,10 +1313,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       
       // Move to completed trades
       completedTrades.push({ ...activeTrade });
-      activeTrades.delete(tradeId);
-      
-      // Increment lifecycle counter for this position
-      lifecycleCounters.set(positionKey, lifecycleCount + 1);
+      activeTrades.delete(positionKey);
     }
     // Handle TP/SL events
     else if (name === 'InstantCreateTpslEvent' || name === 'InstantUpdateTpslEvent') {
