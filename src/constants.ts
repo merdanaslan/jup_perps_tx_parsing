@@ -1,6 +1,10 @@
 import { AnchorProvider, BN, Program, Wallet } from "@coral-xyz/anchor";
 import { IDL, type Perpetuals } from "./idl/jupiter-perpetuals-idl";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
+import * as dotenv from "dotenv";
+
+// Load environment variables
+dotenv.config();
 
 export const RPC_CONNECTION = new Connection(
   process.env.RPC_URL || "https://api.mainnet-beta.solana.com",

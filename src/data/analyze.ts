@@ -247,14 +247,14 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
   const wallet = walletAddress || defaultWalletAddress;
   
   // Generate all possible position PDAs for the wallet
-  console.log(`\nGenerating position PDAs for wallet: ${wallet}`);
+  // console.log(`\nGenerating position PDAs for wallet: ${wallet}`); // Commented out for performance
   const positionPdas = generateAllPositionPdas(wallet);
   
-  console.log(`Found ${positionPdas.length} possible position PDAs:`);
-  positionPdas.forEach((pda, index) => {
-    console.log(`  ${index + 1}. ${pda.description}`);
-    console.log(`     PDA: ${pda.positionPda.toBase58()}`);
-  });
+  // console.log(`Found ${positionPdas.length} possible position PDAs:`); // Commented out for performance
+  // positionPdas.forEach((pda, index) => {
+  //   console.log(`  ${index + 1}. ${pda.description}`);
+  //   console.log(`     PDA: ${pda.positionPda.toBase58()}`);
+  // });
   
   // Parse from date (default to 30 days ago if not provided) - this is the starting point (older date)
   const fromDate = fromDateString 
@@ -271,7 +271,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     throw new Error(`FROM_DATE (${fromDate.toLocaleDateString('en-GB')}) must be older than TO_DATE (${toDate.toLocaleDateString('en-GB')})`);
   }
   
-  console.log(`\nGetting signatures from ${fromDate.toLocaleDateString('en-GB')} to ${toDate.toLocaleDateString('en-GB')}...`);
+  // console.log(`\nGetting signatures from ${fromDate.toLocaleDateString('en-GB')} to ${toDate.toLocaleDateString('en-GB')}...`); // Commented out for performance
   
   // Collect all events from all PDAs
   const allEvents: any[] = [];
@@ -279,12 +279,12 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
   // Process each PDA
   for (let pdaIndex = 0; pdaIndex < positionPdas.length; pdaIndex++) {
     const currentPda = positionPdas[pdaIndex];
-    console.log(`\n=== Processing PDA ${pdaIndex + 1}/${positionPdas.length}: ${currentPda.description} ===`);
+    // console.log(`\n=== Processing PDA ${pdaIndex + 1}/${positionPdas.length}: ${currentPda.description} ===`); // Commented out for performance
     
     // Add delay between PDA processing to avoid rate limits
     if (pdaIndex > 0) {
-      console.log(`Waiting 9 seconds before processing next PDA to avoid rate limits...`);
-      await new Promise(resolve => setTimeout(resolve, 9000));
+      // console.log(`Waiting 0.03 seconds before processing next PDA to avoid rate limits...`); // Commented out for performance
+      await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
     }
     
     const allSignatures: any[] = [];
@@ -294,7 +294,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     
     // Fetch transactions in batches until we reach the target date
     while (hasMoreTransactions && totalFetched < 1000) { // Safety limit of 1000 transactions per PDA
-      const options: any = { limit: 100 }; // Fetch 100 at a time for better performance
+      const options: any = { limit: 300 }; // Sweet spot between 200 and 500
       if (beforeSignature) {
         options.before = beforeSignature;
       }
@@ -307,13 +307,13 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       }
       
       totalFetched += confirmedSignatureInfos.length;
-      console.log(`Fetched ${confirmedSignatureInfos.length} signatures (total: ${totalFetched} for this PDA)`);
+      // console.log(`Fetched ${confirmedSignatureInfos.length} signatures (total: ${totalFetched} for this PDA)`); // Commented out for performance
       
-      // Add delay between signature fetching batches to avoid rate limits
-      if (confirmedSignatureInfos.length === 100) {
-        console.log(`Waiting 5 seconds before fetching next batch of signatures...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
-      }
+              // Add delay between signature fetching batches to avoid rate limits
+        if (confirmedSignatureInfos.length === 300) {
+          // console.log(`Waiting 0.05 seconds before fetching next batch of signatures...`); // Commented out for performance
+          await new Promise(resolve => setTimeout(resolve, 30)); // Optimized for 300 batch size
+        }
       
       // Check if we've reached our target date and filter by date range
       for (const sigInfo of confirmedSignatureInfos) {
@@ -321,7 +321,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
         
         // Stop fetching if we've gone past the target date
         if (!shouldContinueFetching(blockTime, fromDate)) {
-          console.log(`Reached start date ${fromDate.toLocaleDateString('en-GB')} for ${currentPda.description}, stopping fetch`);
+          // console.log(`Reached start date ${fromDate.toLocaleDateString('en-GB')} for ${currentPda.description}, stopping fetch`); // Commented out for performance
           hasMoreTransactions = false;
           break;
         }
@@ -333,7 +333,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       }
       
       // Set up for next batch
-      if (hasMoreTransactions && confirmedSignatureInfos.length === 100) {
+      if (hasMoreTransactions && confirmedSignatureInfos.length === 300) {
         beforeSignature = confirmedSignatureInfos[confirmedSignatureInfos.length - 1].signature;
       } else {
         hasMoreTransactions = false;
@@ -341,33 +341,33 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     }
 
     if (allSignatures.length === 0) {
-      console.log(`No transactions found for ${currentPda.description} in the specified date range`);
+      // console.log(`No transactions found for ${currentPda.description} in the specified date range`); // Commented out for performance
       continue; // Move to next PDA
     }
     
-    console.log(`Found ${allSignatures.length} transactions for ${currentPda.description} within date range`);
+    // console.log(`Found ${allSignatures.length} transactions for ${currentPda.description} within date range`); // Commented out for performance
     
     // Process transactions for this PDA
     for (let i = 0; i < allSignatures.length; i++) {
       if (allSignatures[i].err) {
-        console.log(`Skipping failed transaction: ${allSignatures[i].signature}`);
+        // console.log(`Skipping failed transaction: ${allSignatures[i].signature}`); // Commented out for performance
         continue;
       }
       
       // Add a delay between each transaction processing to avoid rate limits
       if (i > 0) {
-        console.log(`Waiting 5 seconds before processing next transaction...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // console.log(`Waiting 0.03 seconds before processing next transaction...`); // Commented out for performance
+        await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
       }
       
       try {
-        console.log(`Processing transaction ${i+1}/${allSignatures.length} for ${currentPda.description}: ${allSignatures[i].signature}`);
+        // console.log(`Processing transaction ${i+1}/${allSignatures.length} for ${currentPda.description}: ${allSignatures[i].signature}`); // Commented out for performance
         
         // Use our retry function
         const tx = await fetchTransactionWithRetry(allSignatures[i].signature);
         
         if (!tx || !tx.meta || !tx.meta.innerInstructions) {
-          console.log("No inner instructions found in transaction");
+          // console.log("No inner instructions found in transaction"); // Commented out for performance
           continue;
         }
         
@@ -381,9 +381,9 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
               const decodedEvent = JUPITER_PERPETUALS_PROGRAM.coder.events.decode(eventData);
               
               // Debugging: Log event names
-              if (decodedEvent) {
-                console.log(`Found event: ${decodedEvent.name}`);
-              }
+              // if (decodedEvent) {
+              //   console.log(`Found event: ${decodedEvent.name}`); // Commented out for performance
+              // }
               
               // Format the event data for human readability
               const formattedEvent = formatEventData(decodedEvent);
@@ -584,8 +584,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     }
   }
   
-  console.log(`\n=== SUMMARY ===`);
-  console.log(`Total events found across all PDAs: ${allEvents.length}`);
+  // console.log(`\n=== SUMMARY ===`); // Commented out for performance
+  // console.log(`Total events found across all PDAs: ${allEvents.length}`); // Commented out for performance
   
   // Sort all events chronologically before returning
   allEvents.sort((a, b) => {
@@ -609,7 +609,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       data?.event?.name === "FillLimitOrderEvent"  // Add FillLimitOrderEvent as a main event
   );
   
-  console.log(`Found ${filteredEvents.length} relevant position events across all PDAs`);
+  // console.log(`Found ${filteredEvents.length} relevant position events across all PDAs`); // Commented out for performance
   
   return filteredEvents;
 }

@@ -317,8 +317,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       
       // Add delay between PDA processing to avoid rate limits
       if (pdaIndex > 0) {
-        // console.log(`Waiting 9 seconds before processing next PDA to avoid rate limits...`);
-        await new Promise(resolve => setTimeout(resolve, 9000));
+        // console.log(`Waiting 0.5 seconds before processing next PDA to avoid rate limits...`);
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
     
     const allSignatures: any[] = [];
@@ -345,8 +345,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
         
         // Add delay between signature fetching batches to avoid rate limits
         if (confirmedSignatureInfos.length === 100) {
-          // console.log(`Waiting 5 seconds before fetching next batch of signatures...`);
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          // console.log(`Waiting 1 seconds before fetching next batch of signatures...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
       
       // Check if we've reached our target date and filter by date range
@@ -390,8 +390,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
           
           // Add a delay between each transaction processing to avoid rate limits
           if (i > 0) {
-            // console.log(`Waiting 5 seconds before processing next transaction...`);
-            await new Promise(resolve => setTimeout(resolve, 5000));
+                      // console.log(`Waiting 1 second before processing next transaction...`);
+          await new Promise(resolve => setTimeout(resolve, 1000));
           }
           
           try {
