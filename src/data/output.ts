@@ -317,8 +317,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       
       // Add delay between PDA processing to avoid rate limits
       if (pdaIndex > 0) {
-        // console.log(`Waiting 0.5 seconds before processing next PDA to avoid rate limits...`);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // console.log(`Waiting 0.03 seconds before processing next PDA to avoid rate limits...`); // Commented out for performance
+        await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
       }
     
     const allSignatures: any[] = [];
@@ -328,7 +328,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     
     // Fetch transactions in batches until we reach the target date
     while (hasMoreTransactions && totalFetched < 1000) { // Safety limit of 1000 transactions per PDA
-      const options: any = { limit: 100 }; // Fetch 100 at a time for better performance
+      const options: any = { limit: 300 }; // Sweet spot between 200 and 500 for optimal performance
       if (beforeSignature) {
         options.before = beforeSignature;
       }
@@ -344,9 +344,9 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
         // console.log(`Fetched ${confirmedSignatureInfos.length} signatures (total: ${totalFetched} for this PDA)`);
         
         // Add delay between signature fetching batches to avoid rate limits
-        if (confirmedSignatureInfos.length === 100) {
-          // console.log(`Waiting 1 seconds before fetching next batch of signatures...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        if (confirmedSignatureInfos.length === 300) {
+          // console.log(`Waiting 0.03 seconds before fetching next batch of signatures...`); // Commented out for performance
+          await new Promise(resolve => setTimeout(resolve, 30)); // Optimized for 300 batch size
         }
       
       // Check if we've reached our target date and filter by date range
@@ -367,7 +367,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       }
       
       // Set up for next batch
-      if (hasMoreTransactions && confirmedSignatureInfos.length === 100) {
+      if (hasMoreTransactions && confirmedSignatureInfos.length === 300) {
         beforeSignature = confirmedSignatureInfos[confirmedSignatureInfos.length - 1].signature;
       } else {
         hasMoreTransactions = false;
@@ -390,8 +390,8 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
           
           // Add a delay between each transaction processing to avoid rate limits
           if (i > 0) {
-                      // console.log(`Waiting 1 second before processing next transaction...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+            // console.log(`Waiting 0.03 seconds before processing next transaction...`); // Commented out for performance
+            await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
           }
           
           try {
