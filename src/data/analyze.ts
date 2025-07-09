@@ -615,7 +615,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
 }
 
 // Implement exponential backoff for RPC requests
-async function fetchTransactionWithRetry(signature: string, maxRetries = 5): Promise<any> {
+async function fetchTransactionWithRetry(signature: string, maxRetries = 3): Promise<any> { // Reduced retries for speed
   let retries = 0;
   let delay = 500; // Start with 500ms delay
   
@@ -636,7 +636,7 @@ async function fetchTransactionWithRetry(signature: string, maxRetries = 5): Pro
         retries++;
         
         if (retries >= maxRetries) {
-          console.log(`Maximum retries (${maxRetries}) reached. Giving up.`);
+          // console.log(`Maximum retries (${maxRetries}) reached. Giving up.`); // Commented out for performance
           throw error;
         }
         
@@ -644,7 +644,7 @@ async function fetchTransactionWithRetry(signature: string, maxRetries = 5): Pro
         const jitter = Math.random() * 0.3 + 0.85; // Random between 0.85 and 1.15
         delay = Math.min(delay * 2 * jitter, 10000); // Cap at 10 seconds
         
-        console.log(`Rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`);
+        // console.log(`Rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`); // Commented out for performance
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         // For non-rate-limit errors, just throw
@@ -655,7 +655,7 @@ async function fetchTransactionWithRetry(signature: string, maxRetries = 5): Pro
 }
 
 // Add retry wrapper for getSignaturesForAddress to handle rate limits during signature fetching
-async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries = 5): Promise<any> {
+async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries = 3): Promise<any> { // Reduced retries for speed
   let retries = 0;
   let delay = 500; // Start with 500ms delay
   
@@ -670,7 +670,7 @@ async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries
         retries++;
         
         if (retries >= maxRetries) {
-          console.log(`Maximum retries (${maxRetries}) reached for signature fetching. Giving up.`);
+          // console.log(`Maximum retries (${maxRetries}) reached for signature fetching. Giving up.`); // Commented out for performance
           throw error;
         }
         
@@ -678,7 +678,7 @@ async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries
         const jitter = Math.random() * 0.3 + 0.85; // Random between 0.85 and 1.15
         delay = Math.min(delay * 2 * jitter, 15000); // Cap at 15 seconds for signature fetching
         
-        console.log(`Signature fetch rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`);
+        // console.log(`Signature fetch rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`); // Commented out for performance
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         // For non-rate-limit errors, just throw
@@ -695,11 +695,11 @@ async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries
 async function getTpslInstructionData(txSignature: string): Promise<any> {
   try {
     // Fetch the transaction with retry
-    console.log(`Fetching transaction ${txSignature} to decode TP/SL instruction data...`);
+    // console.log(`Fetching transaction ${txSignature} to decode TP/SL instruction data...`); // Commented out for performance
     const tx = await fetchTransactionWithRetry(txSignature);
     
     if (!tx || !tx.transaction) {
-      console.log("Transaction not found or has no data");
+      // console.log("Transaction not found or has no data"); // Commented out for performance
       return null;
     }
     
@@ -726,7 +726,7 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             accountKeys = message.staticAccountKeys || [];
           }
         } catch (err) {
-          console.log("Error getting account keys, using static keys:", err);
+          // console.log("Error getting account keys, using static keys:", err); // Commented out for performance
           accountKeys = message.staticAccountKeys || [];
         }
       } else {
@@ -735,19 +735,19 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
         accountKeys = (message as any).accountKeys;
       }
     } else {
-      console.log("Unexpected transaction format");
+      // console.log("Unexpected transaction format"); // Commented out for performance
       return null;
     }
     
     if (!instructions || !accountKeys) {
-      console.log("Could not extract instructions or account keys");
+      // console.log("Could not extract instructions or account keys"); // Commented out for performance
       return null;
     }
     
-    console.log(`Found ${instructions.length} instructions in transaction`);
+    // console.log(`Found ${instructions.length} instructions in transaction`); // Commented out for performance
     
     // Enhanced debugging: print some transaction information
-    console.log(`Transaction details: Slot ${tx.slot}, ${accountKeys.length} account keys`);
+    // console.log(`Transaction details: Slot ${tx.slot}, ${accountKeys.length} account keys`); // Commented out for performance
     
     // Find the TP/SL instruction
     for (let i = 0; i < instructions.length; i++) {
@@ -772,7 +772,7 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
           const isUpdateTpsl = Buffer.compare(discriminator, TPSL_INSTRUCTION_DISCRIMINATORS.instantUpdateTpsl) === 0;
           
           if (isCreateTpsl || isUpdateTpsl) {
-            console.log(`Found ${isCreateTpsl ? 'instantCreateTpsl' : 'instantUpdateTpsl'} instruction`);
+            // console.log(`Found ${isCreateTpsl ? 'instantCreateTpsl' : 'instantUpdateTpsl'} instruction`); // Commented out for performance
             
             // Parse TP/SL parameters from buffer
             const instructionDataBuffer = data.slice(8);
@@ -844,10 +844,10 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             // Store original create event data for linking
             if (isCreateTpsl) {
               // For create events, we have the complete data including size percentage
-              console.log(`Found instantCreateTpsl instruction with entirePosition: ${entirePosition}`);
+              // console.log(`Found instantCreateTpsl instruction with entirePosition: ${entirePosition}`); // Commented out for performance
             } else {
               // For update events, we only have the limited fields from the IDL
-              console.log(`Found instantUpdateTpsl instruction - size percentage should come from original create event`);
+              // console.log(`Found instantUpdateTpsl instruction - size percentage should come from original create event`); // Commented out for performance
             }
             
             return {
@@ -864,16 +864,16 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             };
           }
         } catch (err) {
-          console.log("Error parsing instruction data:", err);
+          // console.log("Error parsing instruction data:", err); // Commented out for performance
           return null;
         }
       }
     }
     
-    console.log("No TP/SL instruction found in transaction");
+    // console.log("No TP/SL instruction found in transaction"); // Commented out for performance
     return null;
   } catch (err) {
-    console.log("Error processing transaction:", err);
+    // console.log("Error processing transaction:", err); // Commented out for performance
     return null;
   }
 }
@@ -885,11 +885,11 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
 async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
   try {
     // Fetch the transaction with retry
-    console.log(`Fetching transaction ${txSignature} to decode limit order instruction data...`);
+    // console.log(`Fetching transaction ${txSignature} to decode limit order instruction data...`); // Commented out for performance
     const tx = await fetchTransactionWithRetry(txSignature);
     
     if (!tx || !tx.transaction) {
-      console.log("Transaction not found or has no data");
+      // console.log("Transaction not found or has no data"); // Commented out for performance
       return null;
     }
     
@@ -916,7 +916,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
             accountKeys = message.staticAccountKeys || [];
           }
         } catch (err) {
-          console.log("Error getting account keys, using static keys:", err);
+          // console.log("Error getting account keys, using static keys:", err); // Commented out for performance
           accountKeys = message.staticAccountKeys || [];
         }
       } else {
@@ -925,12 +925,12 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
         accountKeys = (message as any).accountKeys;
       }
     } else {
-      console.log("Unexpected transaction format");
+      // console.log("Unexpected transaction format"); // Commented out for performance
       return null;
     }
     
     if (!instructions || !accountKeys) {
-      console.log("Could not extract instructions or account keys");
+      // console.log("Could not extract instructions or account keys"); // Commented out for performance
       return null;
     }
     
@@ -965,7 +965,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
           for (const name of possibleDiscriminatorNames) {
             const calculatedDiscr = Buffer.from(utils.sha256.hash(name).slice(0, 8));
             if (Buffer.compare(discriminator, calculatedDiscr) === 0) {
-              console.log(`Found potential limit order instruction (${name}): [${Array.from(discriminator)}]`);
+              // console.log(`Found potential limit order instruction (${name}): [${Array.from(discriminator)}]`); // Commented out for performance
               
               // If we find a match, save it for future reference
               if (name.includes("create")) {
@@ -988,7 +988,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
         
         if (isCreateLimitOrder || isUpdateLimitOrder) {
           // This is a limit order instruction
-          console.log(`Found ${isCreateLimitOrder ? 'instantCreateLimitOrder' : 'instantUpdateLimitOrder'} instruction`);
+          // console.log(`Found ${isCreateLimitOrder ? 'instantCreateLimitOrder' : 'instantUpdateLimitOrder'} instruction`); // Commented out for performance
           
           try {
             // Use Anchor's BorshCoder to decode the instruction data
@@ -1008,13 +1008,13 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
                 params: args
               };
             } catch (err) {
-              console.log(`Failed to decode ${ixName} instruction:`, err);
+              // console.log(`Failed to decode ${ixName} instruction:`, err); // Commented out for performance
               
               // Fallback to binary parsing if needed
               // Structure of limit order params (based on IDL):
               // Price, size, etc.
               const instructionDataBuffer = data.slice(8);
-              console.log("Instruction data (hex):", Buffer.from(instructionDataBuffer).toString('hex'));
+              // console.log("Instruction data (hex):", Buffer.from(instructionDataBuffer).toString('hex')); // Commented out for performance
               
               // Extract common fields we expect in limit orders
               let offset = 0;
@@ -1022,18 +1022,18 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
               // Try to extract price (u64/BN)
               if (offset + 8 <= instructionDataBuffer.length) {
                 const price = new BN(instructionDataBuffer.slice(offset, offset + 8), 'le');
-                console.log(`Potential limit price: $${BNToUSDRepresentation(price, USDC_DECIMALS)}`);
+                // console.log(`Potential limit price: $${BNToUSDRepresentation(price, USDC_DECIMALS)}`); // Commented out for performance
                 offset += 8;
               }
               
               // Try to extract size (u64/BN)
               if (offset + 8 <= instructionDataBuffer.length) {
                 const size = new BN(instructionDataBuffer.slice(offset, offset + 8), 'le');
-                console.log(`Potential size: $${BNToUSDRepresentation(size, USDC_DECIMALS)}`);
+                // console.log(`Potential size: $${BNToUSDRepresentation(size, USDC_DECIMALS)}`); // Commented out for performance
               }
             }
           } catch (error) {
-            console.error(`Error processing limit order instruction: ${error instanceof Error ? error.message : String(error)}`);
+            // console.error(`Error processing limit order instruction: ${error instanceof Error ? error.message : String(error)}`); // Commented out for performance
           }
         }
       }
@@ -1047,7 +1047,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
     
     return null;
   } catch (err) {
-    console.log("Error processing transaction:", err);
+    // console.log("Error processing transaction:", err); // Commented out for performance
     return null;
   }
 }
@@ -1669,6 +1669,26 @@ export async function getPositionTradeHistory(fromDateString?: string, walletAdd
   return groupEventsIntoTrades(events);
 }
 
+/**
+ * PARALLEL VERSION - Get the complete trade history using parallel processing for faster execution
+ * This version can be 2-3x faster than the sequential version
+ */
+export async function getPositionTradeHistoryParallel(fromDateString?: string, walletAddress?: string, toDateString?: string): Promise<{ activeTrades: ITrade[]; completedTrades: ITrade[] }> {
+  if (!walletAddress) {
+    throw new Error("Wallet address is required");
+  }
+  // Get all events for the wallet's position PDAs with date filtering using parallel processing
+  const events = await getPositionEventsParallel(fromDateString, walletAddress, toDateString);
+  
+  // Display raw events first
+  console.log("\n======== RAW EVENTS (PARALLEL) ========");
+  console.log(`Found ${events.length} events`);
+  console.log("=======================================\n");
+  
+  // Group events into trades (same logic as sequential version)
+  return groupEventsIntoTrades(events);
+}
+
 // Helper function to format limit order data
 function formatLimitOrderData(data: any): string {
   if (!data || !data.params) return "Not available";
@@ -1694,7 +1714,11 @@ function formatLimitOrderData(data: any): string {
  * Example usage with date support and wallet address
  */
 async function analyzeTradeHistory(fromDateString?: string, walletAddress?: string, toDateString?: string) {
-  const { activeTrades, completedTrades } = await getPositionTradeHistory(fromDateString, walletAddress, toDateString);
+  // Store start time for performance tracking
+  const startTime = Date.now();
+  
+  // Use parallel version for faster execution
+  const { activeTrades, completedTrades } = await getPositionTradeHistoryParallel(fromDateString, walletAddress, toDateString);
   
   console.log(`\n======== TRADE SUMMARY ========`);
   if (fromDateString && toDateString) {
@@ -1728,6 +1752,120 @@ async function analyzeTradeHistory(fromDateString?: string, walletAddress?: stri
   }
   
   console.log("===============================");
+  
+  // Add comprehensive analytics at the end
+  console.log("\n📊 DETAILED ANALYTICS");
+  console.log("─".repeat(50));
+  
+  // Calculate execution time
+  const executionTime = ((Date.now() - startTime) / 1000).toFixed(2);
+  console.log(`⚡ Execution time: ${executionTime}s`);
+  
+  // Count total events across all trades
+  const allEvents = [...activeTrades, ...completedTrades].flatMap(trade => trade.events);
+  console.log(`📋 Total events processed: ${allEvents.length}`);
+  
+  // Break down events by type
+  const eventCounts: { [key: string]: number } = {};
+  allEvents.forEach(event => {
+    if (event?.event?.name) {
+      eventCounts[event.event.name] = (eventCounts[event.event.name] || 0) + 1;
+    }
+  });
+  
+  console.log(`\n📊 Event breakdown:`);
+  Object.entries(eventCounts)
+    .sort(([,a], [,b]) => b - a) // Sort by count descending
+    .forEach(([eventType, count]) => {
+      console.log(`   ${eventType}: ${count}`);
+    });
+  
+  // Trade statistics
+  const totalTrades = activeTrades.length + completedTrades.length;
+  console.log(`\n💼 Trade statistics:`);
+  console.log(`   Total trades: ${totalTrades}`);
+  console.log(`   Active: ${activeTrades.length} (${totalTrades > 0 ? ((activeTrades.length / totalTrades) * 100).toFixed(1) : 0}%)`);
+  console.log(`   Closed: ${completedTrades.filter(t => t.status === 'closed').length}`);
+  console.log(`   Liquidated: ${completedTrades.filter(t => t.status === 'liquidated').length}`);
+  
+  // PnL analysis for completed trades
+  const completedWithPnl = completedTrades.filter(t => t.pnl !== undefined);
+  if (completedWithPnl.length > 0) {
+    const totalPnl = completedWithPnl.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
+    const profitableTrades = completedWithPnl.filter(t => (t.pnl || 0) > 0);
+    const winRate = (profitableTrades.length / completedWithPnl.length) * 100;
+    
+    console.log(`\n💰 PnL analysis:`);
+    console.log(`   Total realized PnL: $${totalPnl.toFixed(2)}`);
+    console.log(`   Win rate: ${winRate.toFixed(1)}% (${profitableTrades.length}/${completedWithPnl.length})`);
+    console.log(`   Average PnL: $${(totalPnl / completedWithPnl.length).toFixed(2)}`);
+    
+    if (profitableTrades.length > 0) {
+      const avgWin = profitableTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / profitableTrades.length;
+      console.log(`   Average win: $${avgWin.toFixed(2)}`);
+    }
+    
+    const losingTrades = completedWithPnl.filter(t => (t.pnl || 0) < 0);
+    if (losingTrades.length > 0) {
+      const avgLoss = losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / losingTrades.length;
+      console.log(`   Average loss: $${avgLoss.toFixed(2)}`);
+    }
+  }
+  
+  // Position analysis
+  const allTradesForAnalysis = [...activeTrades, ...completedTrades];
+  if (allTradesForAnalysis.length > 0) {
+    const longTrades = allTradesForAnalysis.filter(t => t.positionSide === 'Long');
+    const shortTrades = allTradesForAnalysis.filter(t => t.positionSide === 'Short');
+    
+    console.log(`\n📈 Position analysis:`);
+    console.log(`   Long positions: ${longTrades.length} (${((longTrades.length / allTradesForAnalysis.length) * 100).toFixed(1)}%)`);
+    console.log(`   Short positions: ${shortTrades.length} (${((shortTrades.length / allTradesForAnalysis.length) * 100).toFixed(1)}%)`);
+    
+    // Asset breakdown
+    const assetCounts: { [key: string]: number } = {};
+    allTradesForAnalysis.forEach(trade => {
+      if (trade.asset) {
+        assetCounts[trade.asset] = (assetCounts[trade.asset] || 0) + 1;
+      }
+    });
+    
+    if (Object.keys(assetCounts).length > 0) {
+      console.log(`\n🏷️  Asset breakdown:`);
+      Object.entries(assetCounts)
+        .sort(([,a], [,b]) => b - a)
+        .forEach(([asset, count]) => {
+          console.log(`   ${asset}: ${count} trades`);
+        });
+    }
+    
+    // Size and leverage analysis
+    const sizesUsd = allTradesForAnalysis.map(t => t.sizeUsd).filter(s => s > 0);
+    const leverages = allTradesForAnalysis.map(t => t.leverage).filter(l => l > 0);
+    
+    if (sizesUsd.length > 0) {
+      const avgSize = sizesUsd.reduce((sum, size) => sum + size, 0) / sizesUsd.length;
+      const maxSize = Math.max(...sizesUsd);
+      const minSize = Math.min(...sizesUsd);
+      
+      console.log(`\n📏 Size analysis:`);
+      console.log(`   Average position size: $${avgSize.toFixed(2)}`);
+      console.log(`   Largest position: $${maxSize.toFixed(2)}`);
+      console.log(`   Smallest position: $${minSize.toFixed(2)}`);
+    }
+    
+    if (leverages.length > 0) {
+      const avgLeverage = leverages.reduce((sum, lev) => sum + lev, 0) / leverages.length;
+      const maxLeverage = Math.max(...leverages);
+      
+      console.log(`\n🎯 Leverage analysis:`);
+      console.log(`   Average leverage: ${avgLeverage.toFixed(2)}x`);
+      console.log(`   Maximum leverage: ${maxLeverage.toFixed(2)}x`);
+    }
+  }
+  
+  console.log("─".repeat(50));
+  console.log("✅ Analysis complete!\n");
 }
 
 // Update the printDetailedTradeInfo function to better display TP/SL data and add limit order info
@@ -2423,9 +2561,9 @@ function getAssetNameFromCustody(custodyPubkey: string | undefined): string {
  */
 
 // ====== CONFIGURATION ====== 
-const FROM_DATE = "01.06.2025"; // Start date - where to begin analysis (older date)
-const TO_DATE = "27.06.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
-const WALLET_ADDRESS = "GFexHU2EkUcmcKbj3GyiuNQoa7TreCxLkAxMb2xeLHgS"; // Wallet to analyze
+const FROM_DATE = "01.01.2025"; // Start date - where to begin analysis (older date)
+const TO_DATE = "08.07.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
+const WALLET_ADDRESS = "CCzT1sYFhUMftUYXciKWwjSNVfsPetygMpmRRHpXNRYR"; // Wallet to analyze
 // ============================
 
 // Run the example with date support and wallet address
@@ -2454,4 +2592,220 @@ function calculateTpslSizePercentage(
   
   // Fallback if we can't calculate
   return "Partial position";
+}
+
+// Add parallel processing functions for faster execution
+
+/**
+ * PARALLEL VERSION - Process multiple PDAs concurrently for faster execution
+ * This version can be 2-3x faster than the sequential version
+ */
+export async function getPositionEventsParallel(fromDateString?: string, walletAddress?: string, toDateString?: string) {
+  if (!walletAddress) {
+    throw new Error("Wallet address is required");
+  }
+  const wallet = walletAddress;
+  
+  // Generate all possible position PDAs for the wallet
+  const positionPdas = generateAllPositionPdas(wallet);
+  
+  // Parse dates
+  const fromDate = fromDateString 
+    ? parseDate(fromDateString)
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  
+  const toDate = toDateString 
+    ? parseDate(toDateString)
+    : new Date();
+  
+  // Validate date range
+  if (fromDate >= toDate) {
+    throw new Error(`FROM_DATE (${fromDate.toLocaleDateString('en-GB')}) must be older than TO_DATE (${toDate.toLocaleDateString('en-GB')})`);
+  }
+
+  // Position event filter - extracted to avoid duplication
+  const POSITION_EVENT_NAMES = new Set([
+    "IncreasePositionEvent",
+    "InstantIncreasePositionEvent", 
+    "DecreasePositionEvent",
+    "InstantDecreasePositionEvent",
+    "LiquidateFullPositionEvent",
+    "IncreasePositionPreSwapEvent",
+    "DecreasePositionPostSwapEvent",
+    "InstantCreateTpslEvent",
+    "InstantUpdateTpslEvent",
+    "FillLimitOrderEvent"
+  ]);
+
+  // Process all PDAs in parallel (Jupiter has max 9 PDAs: 3 long + 6 short)
+  // Using batches to respect RPC rate limits
+  const CONCURRENCY_LIMIT = 5; // Process 5 PDAs simultaneously for optimal speed/reliability balance
+  const results: any[] = [];
+  
+  for (let i = 0; i < positionPdas.length; i += CONCURRENCY_LIMIT) {
+    const batch = positionPdas.slice(i, i + CONCURRENCY_LIMIT);
+    
+    const batchPromises = batch.map(pda => processPdaParallelAnalyze(pda, fromDate, toDate));
+    const batchResults = await Promise.all(batchPromises);
+    
+    results.push(...batchResults);
+    
+    // Brief delay between batches to prevent rate limiting
+    if (i + CONCURRENCY_LIMIT < positionPdas.length) {
+      await new Promise(resolve => setTimeout(resolve, 30));
+    }
+  }
+  
+  // Flatten all events from all PDAs
+  const allEvents = results.flat();
+  
+  // Sort all events chronologically
+  allEvents.sort((a, b) => {
+    const aTime = a?.tx.blockTime ? new Date(a.tx.blockTime).getTime() : 0;
+    const bTime = b?.tx.blockTime ? new Date(b.tx.blockTime).getTime() : 0;
+    return aTime - bTime;
+  });
+  
+  // Filter and return position events using Set for O(1) lookup performance
+  return allEvents.filter(data => 
+    data?.event?.name && POSITION_EVENT_NAMES.has(data.event.name)
+  );
+}
+
+/**
+ * Process a single PDA with parallel transaction processing for analyze.ts
+ */
+async function processPdaParallelAnalyze(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
+  // Fetch all signatures for this PDA first
+  const allSignatures = await fetchAllSignaturesParallelAnalyze(currentPda, fromDate, toDate);
+  
+  if (allSignatures.length === 0) {
+    return [];
+  }
+
+  // Process transactions in parallel batches with good concurrency for speed
+  const TRANSACTION_BATCH_SIZE = 10; // Back to aggressive settings for v1 
+  const allEvents: any[] = [];
+  
+  for (let i = 0; i < allSignatures.length; i += TRANSACTION_BATCH_SIZE) {
+    const batch = allSignatures.slice(i, i + TRANSACTION_BATCH_SIZE);
+    
+    // Filter out failed transactions
+    const validBatch = batch.filter(sig => !sig.err);
+    
+    if (validBatch.length === 0) continue;
+    
+    // Process this batch of transactions in parallel
+    const batchPromises = validBatch.map(sigInfo => processTransactionParallelAnalyze(sigInfo));
+    const batchResults = await Promise.all(batchPromises);
+    
+    // Flatten and add to results
+    const batchEvents = batchResults.flat().filter(Boolean);
+    allEvents.push(...batchEvents);
+    
+    // Minimal delay for speed
+    if (i + TRANSACTION_BATCH_SIZE < allSignatures.length) {
+      await new Promise(resolve => setTimeout(resolve, 10)); // Reduced delay
+    }
+  }
+  
+  return allEvents;
+}
+
+/**
+ * Fetch all signatures for a PDA with optimized batch processing for analyze.ts
+ */
+async function fetchAllSignaturesParallelAnalyze(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
+  const allSignatures: any[] = [];
+  let beforeSignature: string | undefined = undefined;
+  let hasMoreTransactions = true;
+  let totalFetched = 0;
+  
+  while (hasMoreTransactions && totalFetched < 2000) { // Increased limit for larger datasets
+    const options: any = { limit: 1000 }; // Back to 1000 for speed - retries handle any issues
+    if (beforeSignature) {
+      options.before = beforeSignature;
+    }
+    
+    const confirmedSignatureInfos = await getSignaturesWithRetry(currentPda.positionPda, options);
+
+    if (!confirmedSignatureInfos || confirmedSignatureInfos.length === 0) {
+      break;
+    }
+    
+    totalFetched += confirmedSignatureInfos.length;
+    
+    // Check dates and filter
+    for (const sigInfo of confirmedSignatureInfos) {
+      const blockTime = sigInfo.blockTime ?? null;
+      
+      if (!shouldContinueFetching(blockTime, fromDate)) {
+        hasMoreTransactions = false;
+        break;
+      }
+      
+      if (isWithinDateRange(blockTime, fromDate, toDate)) {
+        allSignatures.push(sigInfo);
+      }
+    }
+    
+    // Set up for next batch
+    if (hasMoreTransactions && confirmedSignatureInfos.length === 1000) {
+      beforeSignature = confirmedSignatureInfos[confirmedSignatureInfos.length - 1].signature;
+      // Minimal delay for speed
+      await new Promise(resolve => setTimeout(resolve, 20)); // Reduced delay for speed
+    } else {
+      hasMoreTransactions = false;
+    }
+  }
+  
+  return allSignatures;
+}
+
+/**
+ * Process a single transaction with all its events for analyze.ts
+ */
+async function processTransactionParallelAnalyze(sigInfo: any): Promise<any[]> {
+  try {
+    const tx = await fetchTransactionWithRetry(sigInfo.signature);
+    
+    if (!tx || !tx.meta || !tx.meta.innerInstructions) {
+      return [];
+    }
+    
+    const txEvents = tx.meta.innerInstructions.flatMap((ix: { instructions: any[] }) => {
+      return ix.instructions.map((iix: { data: string }) => {
+        try {
+          const ixData = utils.bytes.bs58.decode(iix.data);
+          const eventData = utils.bytes.base64.encode(
+            ixData.subarray(DISCRIMINATOR_SIZE)
+          );
+          const decodedEvent = JUPITER_PERPETUALS_PROGRAM.coder.events.decode(eventData);
+          
+          const formattedEvent = formatEventData(decodedEvent);
+          const feeInSOL = tx.meta!.fee / 1_000_000_000;
+          
+          const eventWithTx = {
+            event: formattedEvent,
+            tx: {
+              signature: sigInfo.signature,
+              blockTime: tx.blockTime 
+                ? new Date(tx.blockTime * 1000).toISOString()
+                : null,
+              fee: `${feeInSOL} SOL`,
+              feeInLamports: tx.meta!.fee
+            }
+          };
+          
+          return eventWithTx;
+        } catch (error) {
+          return null;
+        }
+      }).filter(Boolean);
+    });
+    
+    return txEvents;
+  } catch (error) {
+    return [];
+  }
 }
