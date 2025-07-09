@@ -2467,6 +2467,30 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
       }
     }
   });
+
+  // Add raw events section
+  console.log("\nRaw Events Data:");
+  console.log("─".repeat(60));
+  trade.events.forEach((evt, i) => {
+    if (evt && evt.event) {
+      console.log(`\n${i+1}. Event: ${evt.event.name}`);
+      console.log(`   Transaction: ${evt.tx.signature}`);
+      console.log(`   Block Time: ${evt.tx.blockTime || "Unknown"}`);
+      console.log(`   Slot: ${evt.tx.slot || "Unknown"}`);
+      console.log(`   Fee: ${evt.tx.fee || "Unknown"}`);
+      console.log(`   Raw Event Data:`);
+      
+      if (evt.event.data) {
+        // Pretty print the raw event data with proper indentation
+        const eventDataString = JSON.stringify(evt.event.data, null, 2);
+        const indentedData = eventDataString.split('\n').map(line => `     ${line}`).join('\n');
+        console.log(indentedData);
+      } else {
+        console.log(`     (No event data)`);
+      }
+    }
+  });
+  console.log("─".repeat(60));
 }
 
 // Helper function to get token symbol from mint address
