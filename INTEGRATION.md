@@ -1,31 +1,43 @@
-# Next.js Integration Guide
+# Next.js Integration Guide for Jupiter Perpetuals Output Script
 
-## 📁 File Structure for Next.js Integration
+> **Note**: This guide focuses on integrating **only the `output.ts` script** into your Next.js project. The `analyze.ts` script is not included in this integration.
+
+## 📁 Required Files for Integration
+
+Copy these files from the source project to your Next.js project:
 
 ```
 your-nextjs-project/
-├── lib/
-│   ├── jupiter-perps/
-│   │   ├── constants.ts
-│   │   ├── utils.ts
-│   │   ├── types.ts
-│   │   ├── output.ts
-│   │   └── idl/
-│   │       ├── jupiter-perpetuals-idl.ts
-│   │       └── jupiter-perpetuals-idl-json.json
-│   └── ...
-├── pages/api/
-│   └── trades/
-│       └── [wallet].ts
-└── ...
+├── src/
+│   └── lib/
+│       └── jupiter-perps/
+│           ├── constants.ts                    ✅ Required (Program constants & RPC config)
+│           ├── utils.ts                       ✅ Required (BNToUSDRepresentation helper)
+│           ├── types.ts                       ✅ Required (Type definitions)
+│           ├── output.ts                      ✅ Required (Main output functionality)
+│           └── idl/
+│               ├── jupiter-perpetuals-idl.ts          ✅ Required (IDL types)
+│               └── jupiter-perpetuals-idl-json.json   ✅ Required (IDL JSON)
+├── app/
+│   └── api/
+│       └── trades/
+│           └── [wallet]/
+│               └── route.ts                   📝 Create this API route
+└── .env.local                                 📝 Add environment variables
 ```
+
+### Files NOT Needed:
+- ❌ `src/data/analyze.ts` (Different script, not for this integration)
+- ❌ `notes.md` (Development notes)
+- ❌ `README.md` (Project documentation)
+- ❌ `package.json` / `package-lock.json` (Use your Next.js dependencies)
+- ❌ `tsconfig.json` (Use your Next.js TypeScript config)
 
 ## 🔧 Environment Setup
 
 ### 1. **Install Dependencies**
 ```bash
-npm install @coral-xyz/anchor @solana/web3.js @solana/spl-token dotenv
-npm install -D @types/node
+npm install @coral-xyz/anchor @solana/web3.js dotenv
 ```
 
 ### 2. **Environment Variables (.env.local)**
@@ -36,11 +48,11 @@ RPC_URL=https://api.mainnet-beta.solana.com
 
 ## 🚀 API Route Implementation
 
-### **`pages/api/trades/[wallet].ts`**
+### **`app/api/trades/[wallet]/route.ts`**
 
 ```typescript
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { analyzeTradeHistoryJson } from '../../../lib/jupiter-perps/output';
+import { NextRequest, NextResponse } from 'next/server';
+import { analyzeTradeHistoryJson } from '../../../../lib/jupiter-perps/output';
 
 // Input validation
 function validateWalletAddress(wallet: string): boolean {
@@ -64,27 +76,25 @@ function parseAndValidateDate(dateString: string): Date {
   return date;
 }
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { wallet: string } }
 ) {
-  // Only allow GET requests
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
-    const { wallet, from_date, to_date } = req.query;
+    const { searchParams } = new URL(request.url);
+    const wallet = params.wallet;
+    const from_date = searchParams.get('from_date');
+    const to_date = searchParams.get('to_date');
 
     // Validate wallet address
-    if (!wallet || typeof wallet !== 'string') {
-      return res.status(400).json({ error: 'Wallet address is required' });
+    if (!wallet) {
+      return NextResponse.json({ error: 'Wallet address is required' }, { status: 400 });
     }
 
     if (!validateWalletAddress(wallet)) {
-      return res.status(400).json({ 
+      return NextResponse.json({ 
         error: 'Invalid wallet address format' 
-      });
+      }, { status: 400 });
     }
 
     // Validate dates if provided
@@ -92,34 +102,34 @@ export default async function handler(
     let toDate: string | undefined;
 
     if (from_date) {
-      if (typeof from_date !== 'string' || !validateDateFormat(from_date)) {
-        return res.status(400).json({ 
+      if (!validateDateFormat(from_date)) {
+        return NextResponse.json({ 
           error: 'Invalid from_date format. Use DD.MM.YYYY' 
-        });
+        }, { status: 400 });
       }
       try {
         parseAndValidateDate(from_date);
         fromDate = from_date;
       } catch (error) {
-        return res.status(400).json({ 
+        return NextResponse.json({ 
           error: `Invalid from_date: ${error instanceof Error ? error.message : 'Unknown error'}` 
-        });
+        }, { status: 400 });
       }
     }
 
     if (to_date) {
-      if (typeof to_date !== 'string' || !validateDateFormat(to_date)) {
-        return res.status(400).json({ 
+      if (!validateDateFormat(to_date)) {
+        return NextResponse.json({ 
           error: 'Invalid to_date format. Use DD.MM.YYYY' 
-        });
+        }, { status: 400 });
       }
       try {
         parseAndValidateDate(to_date);
         toDate = to_date;
       } catch (error) {
-        return res.status(400).json({ 
+        return NextResponse.json({ 
           error: `Invalid to_date: ${error instanceof Error ? error.message : 'Unknown error'}` 
-        });
+        }, { status: 400 });
       }
     }
 
@@ -129,20 +139,20 @@ export default async function handler(
       const to = parseAndValidateDate(toDate);
       
       if (from >= to) {
-        return res.status(400).json({ 
+        return NextResponse.json({ 
           error: 'from_date must be earlier than to_date' 
-        });
+        }, { status: 400 });
       }
     }
 
-    // Call the optimized trade history function
+    // Call the optimized trade history function from output.ts
     const trades = await analyzeTradeHistoryJson(fromDate, wallet, toDate);
 
     // Set caching headers (optional)
-    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
-
-    // Return the data
-    res.status(200).json(trades);
+    const response = NextResponse.json(trades);
+    response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    
+    return response;
 
   } catch (error) {
     console.error('Error fetching trade history:', error);
@@ -150,18 +160,36 @@ export default async function handler(
     if (error instanceof Error) {
       // Handle known errors
       if (error.message.includes('rate limit') || error.message.includes('429')) {
-        return res.status(429).json({ error: 'Rate limited. Please try again later.' });
+        return NextResponse.json({ error: 'Rate limited. Please try again later.' }, { status: 429 });
       }
       
       if (error.message.includes('Invalid')) {
-        return res.status(400).json({ error: error.message });
+        return NextResponse.json({ error: error.message }, { status: 400 });
       }
     }
 
     // Generic error
-    res.status(500).json({ error: 'Internal server error' });
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+```
+
+## 🔌 Alternative Integration Methods
+
+### **Option 1: Direct Function Import (Recommended)**
+```typescript
+// For API routes or server-side components
+import { analyzeTradeHistoryJson } from '@/lib/jupiter-perps/output';
+
+const data = await analyzeTradeHistoryJson(fromDate, walletAddress, toDate);
+```
+
+### **Option 2: Raw Trade Objects**
+```typescript
+// If you prefer working with raw trade objects instead of JSON
+import { getPositionTradeHistoryParallel } from '@/lib/jupiter-perps/output';
+
+const { activeTrades, completedTrades } = await getPositionTradeHistoryParallel(fromDate, walletAddress, toDate);
 ```
 
 ## 📖 API Usage Examples
@@ -183,7 +211,7 @@ GET /api/trades/GFexHU2EkUcmcKbj3GyiuNQoa7TreCxLkAxMb2xeLHgS?from_date=15.06.202
 
 ## 🎯 Frontend Integration
 
-### **React Hook Example**
+### **React Hook Example (`src/hooks/useTrades.ts`)**
 ```typescript
 import { useState, useEffect } from 'react';
 
@@ -239,21 +267,76 @@ export function useTrades(walletAddress: string, fromDate?: string, toDate?: str
 }
 ```
 
-## ⚡ Performance Features
+### **Component Example (`src/components/TradesList.tsx`)**
+```typescript
+import { useTrades } from '@/hooks/useTrades';
 
-- **~5 second response time** (optimized from 27s)
-- **Proper rate limiting** with exponential backoff
-- **Efficient batch processing** (300 signatures per request)
-- **Minimal delays** (30ms between requests)
-- **Empty result handling** (consistent JSON structure)
+export function TradesList({ walletAddress }: { walletAddress: string }) {
+  const { data, loading, error } = useTrades(walletAddress);
 
-## 🔒 Security Features
+  if (loading) return <div>Loading trades...</div>;
+  if (error) return <div>Error: {error}</div>;
+  if (!data?.positions.length) return <div>No trades found</div>;
 
-- **Input validation** for all parameters
-- **Wallet address format validation**
-- **Date range validation**
-- **Error boundary handling**
-- **Rate limit protection**
+  return (
+    <div>
+      <h3>Trading History for {data.wallet_address}</h3>
+      <p>Last updated: {new Date(data.sync_timestamp).toLocaleString()}</p>
+      
+      {data.positions.map(trade => (
+        <div key={trade.trade_id} className="trade-card">
+          <h4>{trade.symbol} - {trade.direction.toUpperCase()}</h4>
+          <p>Status: {trade.status}</p>
+          <p>Size: ${trade.size_usd.toFixed(2)}</p>
+          {trade.realized_pnl && (
+            <p>PnL: ${trade.realized_pnl.toFixed(2)}</p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+### **Server Component Example (`app/dashboard/trades/page.tsx`)**
+```typescript
+import { analyzeTradeHistoryJson } from '@/lib/jupiter-perps/output';
+import { TradesList } from '@/components/TradesList';
+
+export default async function TradesPage({
+  searchParams
+}: {
+  searchParams: { wallet?: string; from_date?: string; to_date?: string }
+}) {
+  if (!searchParams.wallet) {
+    return <div>Please provide a wallet address</div>;
+  }
+
+  // Server-side data fetching
+  const data = await analyzeTradeHistoryJson(
+    searchParams.from_date,
+    searchParams.wallet,
+    searchParams.to_date
+  );
+
+  return (
+    <div>
+      <h1>Jupiter Perpetuals Trading History</h1>
+      <TradesList data={data} />
+    </div>
+  );
+}
+```
+
+## ⚡ Key Features of output.ts Integration
+
+- **🚀 High Performance**: ~5 second response time (optimized with parallel processing)
+- **📊 Structured JSON Output**: Clean, consistent data format
+- **🔄 Complete Trade Lifecycle**: Tracks opens, increases, decreases, closes, liquidations
+- **💰 Comprehensive Metrics**: PnL, fees, leverage, entry/exit prices
+- **📝 Event Details**: All transaction events with timestamps and metadata
+- **🎯 TP/SL Detection**: Identifies take profit and stop loss orders
+- **🔄 Swap Detection**: Recognizes token swaps during position management
 
 ## 📝 Response Format
 
@@ -278,11 +361,30 @@ export function useTrades(walletAddress: string, fromDate?: string, toDate?: str
       "total_fees": 5239.81,
       "entry_time": "2025-06-05T14:38:45.000Z",
       "exit_time": "2025-06-05T15:25:06.000Z",
-      "events": [...]
+      "events": [
+        {
+          "timestamp": "2025-06-05T14:38:45.000Z",
+          "transaction_signature": "5k8...",
+          "event_name": "InstantIncreasePositionEvent",
+          "action": "Buy",
+          "type": "Market",
+          "size_usd": 1801436.73,
+          "price": 150.32,
+          "fee_usd": 540.43
+        }
+      ]
     }
   ]
 }
 ```
+
+## 🔒 Security Features
+
+- **Input validation** for all parameters
+- **Wallet address format validation**
+- **Date range validation**
+- **Error boundary handling**
+- **Rate limit protection**
 
 ## 🎛️ Configuration Options
 
@@ -300,9 +402,10 @@ For high-volume usage, consider:
 
 ## ✅ Ready for Production
 
-Your optimized script is **production-ready** with:
-- 🚀 **81% performance improvement** (27s → 5s)
-- 🔒 **Security validation** built-in
-- 📊 **Consistent JSON output**
-- ⚡ **Optimal rate limiting**
-- 🛡️ **Error handling** and retries 
+Your `output.ts` integration is **production-ready** with:
+- 🚀 **Optimized Performance**: 81% faster than original implementation
+- 🔒 **Security Validation**: Built-in input validation and error handling
+- 📊 **Consistent JSON Output**: Structured data format for easy consumption
+- ⚡ **Smart Rate Limiting**: Handles RPC limits gracefully
+- 🛡️ **Error Recovery**: Automatic retries and graceful degradation
+- 🎯 **Feature Complete**: All Jupiter Perpetuals trading features supported 
