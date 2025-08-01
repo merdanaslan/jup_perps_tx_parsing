@@ -7,11 +7,11 @@ import {
   JLP_POOL_ACCOUNT_PUBKEY,
   JUPITER_PERPETUALS_PROGRAM_ID,
   CUSTODY_PUBKEYS,
-} from "../constants";
+} from "./constants";
 import { PublicKey } from "@solana/web3.js";
-import { Perpetuals } from "../idl/jupiter-perpetuals-idl";
+import { Perpetuals } from "./idl/jupiter-perpetuals-idl";
 import { BN } from "@coral-xyz/anchor";
-import { BNToUSDRepresentation } from "../utils";
+import { BNToUSDRepresentation } from "./utils";
 
 // Position PDA generation functions (imported from generate-position-and-position-request-pda.ts)
 function generatePositionPda({
@@ -59,57 +59,112 @@ function getAssetNameFromCustodyPda(custodyPubkey: string): string {
   }
 }
 
+// Generate deterministic 5-character alphanumeric trade ID
+function generateTradeId(positionKey: string, firstEventTimestamp: string): string {
+  // Step 1: Combine position key + timestamp into one string
+  const source = `${positionKey}${firstEventTimestamp}`;
+  // Example: "76USLRvRMwDoGsK2Bj4RXV2CnuAUxgpVhJy7496Fz4M12025-06-05T14:38:45.000Z"
+  
+  let hash = 0;
+  
+  // Step 2: Loop through each character and create a numeric hash
+  for (let i = 0; i < source.length; i++) {
+    // Get ASCII code of character (e.g., 'A' = 65, '1' = 49)
+    const charCode = source.charCodeAt(i);
+    
+    // Mathematical formula to create hash:
+    // - Shift hash left by 5 bits (multiply by 32)
+    // - Subtract original hash 
+    // - Add character code
+    // - Keep result as 32-bit integer
+    hash = ((hash << 5) - hash + charCode) & 0xffffffff;
+  }
+  
+  // Step 3: Convert negative numbers to positive
+  const positiveHash = Math.abs(hash);
+  // Example: 1847392847
+  
+  // Step 4: Convert to base36 (uses 0-9 and a-z = 36 characters)
+  const base36 = positiveHash.toString(36);
+  // Example: "q7k9m2x"
+  
+  // Step 5: Take last 5 characters and make uppercase
+  return base36.slice(-5).toUpperCase();
+  // Example: "Q7K9M"
+}
+
 // Generate all possible position PDAs for a wallet
 function generateAllPositionPdas(walletAddress: string) {
-  const walletPubkey = new PublicKey(walletAddress);
+
   
-  // Results container
-  const results: Array<{
-    type: string;
-    positionPda: PublicKey;
-    description: string;
-  }> = [];
-  
-  // Loop through all custodies (SOL, BTC, ETH)
-  for (let i = 0; i < 3; i++) {
-    const assetCustody = CUSTODY_PUBKEYS[i];
-    const assetName = getAssetNameFromCustodyPda(assetCustody.toBase58());
+  try {
+    const walletPubkey = new PublicKey(walletAddress);
+
     
-    // Generate Long position PDA
-    const longPosition = generatePositionPda({
-      custody: assetCustody,
-      collateralCustody: assetCustody, // For long, custody and collateralCustody are the same
-      walletAddress: walletPubkey,
-      side: "long",
-    });
+    // Results container
+    const results: Array<{
+      type: string;
+      positionPda: PublicKey;
+      description: string;
+    }> = [];
     
-    results.push({
-      type: "Long",
-      positionPda: longPosition.position,
-      description: `Long ${assetName} (using ${assetName} as collateral)`,
-    });
+
     
-    // Generate Short positions with USDC and USDT as collateral
-    for (let j = 3; j < 5; j++) { // USDC and USDT are at index 3 and 4
-      const stableCustody = CUSTODY_PUBKEYS[j];
-      const stableName = getAssetNameFromCustodyPda(stableCustody.toBase58());
+    // Loop through all custodies (SOL, BTC, ETH)
+    for (let i = 0; i < 3; i++) {
+      const assetCustody = CUSTODY_PUBKEYS[i];
+      const assetName = getAssetNameFromCustodyPda(assetCustody.toBase58());
       
-      const shortPosition = generatePositionPda({
+
+      
+      // Generate Long position PDA
+      const longPosition = generatePositionPda({
         custody: assetCustody,
-        collateralCustody: stableCustody,
+        collateralCustody: assetCustody, // For long, custody and collateralCustody are the same
         walletAddress: walletPubkey,
-        side: "short",
+        side: "long",
       });
       
       results.push({
-        type: "Short",
-        positionPda: shortPosition.position,
-        description: `Short ${assetName} (using ${stableName} as collateral)`,
+        type: "Long",
+        positionPda: longPosition.position,
+        description: `Long ${assetName} (using USDC as collateral)`,
       });
+      
+
+      
+      // Generate Short position PDAs with different collateral types (USDC and USDT)
+
+      for (let j = 3; j < 5; j++) { // USDC and USDT are at index 3 and 4
+        const stableCustody = CUSTODY_PUBKEYS[j];
+        const stableName = getAssetNameFromCustodyPda(stableCustody.toBase58());
+        
+
+        
+        const shortPosition = generatePositionPda({
+          custody: assetCustody,
+          collateralCustody: stableCustody,
+          walletAddress: walletPubkey,
+          side: "short",
+        });
+        
+        results.push({
+          type: "Short",
+          positionPda: shortPosition.position,
+          description: `Short ${assetName} (using ${stableName} as collateral)`,
+        });
+        
+
+      }
     }
+    
+
+    
+    return results;
+  } catch (error) {
+
+    throw error;
   }
-  
-  return results;
 }
 
 type AnchorIdlEvent<EventName extends keyof IdlEvents<Perpetuals>> = {
@@ -247,45 +302,50 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
   const wallet = walletAddress || defaultWalletAddress;
   
   // Generate all possible position PDAs for the wallet
-  // console.log(`\nGenerating position PDAs for wallet: ${wallet}`); // Commented out for performance
+
+  
   const positionPdas = generateAllPositionPdas(wallet);
+
   
-  // console.log(`Found ${positionPdas.length} possible position PDAs:`); // Commented out for performance
-  // positionPdas.forEach((pda, index) => {
-  //   console.log(`  ${index + 1}. ${pda.description}`);
-  //   console.log(`     PDA: ${pda.positionPda.toBase58()}`);
-  // });
+  if (positionPdas.length === 0) {
+
+    return [];
+  }
   
-  // Parse from date (default to 30 days ago if not provided) - this is the starting point (older date)
-  const fromDate = fromDateString 
-    ? parseDate(fromDateString)
-    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+
   
   // Parse to date (default to "now" if not provided) - this is the ending point (newer date)
   const toDate = toDateString 
     ? parseDate(toDateString)
     : new Date(); // Current moment
+    
+  // Parse from date (default to 30 days ago if not provided) - this is the starting point (older date)
+  const fromDate = fromDateString 
+    ? parseDate(fromDateString)
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+  
+
   
   // Validate date range
   if (fromDate >= toDate) {
     throw new Error(`FROM_DATE (${fromDate.toLocaleDateString('en-GB')}) must be older than TO_DATE (${toDate.toLocaleDateString('en-GB')})`);
   }
   
-  // console.log(`\nGetting signatures from ${fromDate.toLocaleDateString('en-GB')} to ${toDate.toLocaleDateString('en-GB')}...`); // Commented out for performance
+
   
   // Collect all events from all PDAs
   const allEvents: any[] = [];
   
-  // Process each PDA
+      // Process each PDA
   for (let pdaIndex = 0; pdaIndex < positionPdas.length; pdaIndex++) {
     const currentPda = positionPdas[pdaIndex];
-    // console.log(`\n=== Processing PDA ${pdaIndex + 1}/${positionPdas.length}: ${currentPda.description} ===`); // Commented out for performance
-    
-    // Add delay between PDA processing to avoid rate limits
-    if (pdaIndex > 0) {
-      // console.log(`Waiting 0.03 seconds before processing next PDA to avoid rate limits...`); // Commented out for performance
-      await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
-    }
+
+
+      
+      // Add delay between PDA processing to avoid rate limits
+      if (pdaIndex > 0) {
+        await new Promise(resolve => setTimeout(resolve, 30)); // Added small delay to avoid rate limiting
+      }
     
     const allSignatures: any[] = [];
     let beforeSignature: string | undefined = undefined;
@@ -293,38 +353,41 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
     let totalFetched = 0;
     
     // Fetch transactions in batches until we reach the target date
+      
     while (hasMoreTransactions && totalFetched < 1000) { // Safety limit of 1000 transactions per PDA
-      const options: any = { limit: 300 }; // Sweet spot between 200 and 500
+      const options: any = { limit: 300 }; // Sweet spot between 200 and 500 for optimal performance
       if (beforeSignature) {
         options.before = beforeSignature;
-      }
-      
-      const confirmedSignatureInfos = await getSignaturesWithRetry(currentPda.positionPda, options);
 
-      if (!confirmedSignatureInfos || confirmedSignatureInfos.length === 0) {
-        console.log(`No more transactions found for ${currentPda.description}`);
-        break;
+      } else {
+
       }
       
-      totalFetched += confirmedSignatureInfos.length;
-      // console.log(`Fetched ${confirmedSignatureInfos.length} signatures (total: ${totalFetched} for this PDA)`); // Commented out for performance
-      
-              // Add delay between signature fetching batches to avoid rate limits
+              const confirmedSignatureInfos = await getSignaturesWithRetry(currentPda.positionPda, options);
+
+        if (!confirmedSignatureInfos || confirmedSignatureInfos.length === 0) {
+
+          break;
+        }
+        
+        totalFetched += confirmedSignatureInfos.length;
+
+        
+        // Add delay between signature fetching batches to avoid rate limits
         if (confirmedSignatureInfos.length === 300) {
-          // console.log(`Waiting 0.05 seconds before fetching next batch of signatures...`); // Commented out for performance
-          await new Promise(resolve => setTimeout(resolve, 30)); // Optimized for 300 batch size
+          await new Promise(resolve => setTimeout(resolve, 30)); // Added small delay to avoid rate limiting
         }
       
       // Check if we've reached our target date and filter by date range
       for (const sigInfo of confirmedSignatureInfos) {
         const blockTime = sigInfo.blockTime ?? null;
         
-        // Stop fetching if we've gone past the target date
-        if (!shouldContinueFetching(blockTime, fromDate)) {
-          // console.log(`Reached start date ${fromDate.toLocaleDateString('en-GB')} for ${currentPda.description}, stopping fetch`); // Commented out for performance
-          hasMoreTransactions = false;
-          break;
-        }
+                  // Stop fetching if we've gone past the target date
+          if (!shouldContinueFetching(blockTime, fromDate)) {
+
+            hasMoreTransactions = false;
+            break;
+          }
         
         // Only include transactions within the specified date range
         if (isWithinDateRange(blockTime, fromDate, toDate)) {
@@ -340,36 +403,32 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       }
     }
 
-    if (allSignatures.length === 0) {
-      // console.log(`No transactions found for ${currentPda.description} in the specified date range`); // Commented out for performance
-      continue; // Move to next PDA
-    }
-    
-    // console.log(`Found ${allSignatures.length} transactions for ${currentPda.description} within date range`); // Commented out for performance
-    
-    // Process transactions for this PDA
-    for (let i = 0; i < allSignatures.length; i++) {
-      if (allSignatures[i].err) {
-        // console.log(`Skipping failed transaction: ${allSignatures[i].signature}`); // Commented out for performance
-        continue;
+      if (allSignatures.length === 0) {
+        continue; // Move to next PDA
       }
-      
-      // Add a delay between each transaction processing to avoid rate limits
-      if (i > 0) {
-        // console.log(`Waiting 0.03 seconds before processing next transaction...`); // Commented out for performance
-        await new Promise(resolve => setTimeout(resolve, 30)); // Balanced delay for optimal performance
-      }
-      
-      try {
-        // console.log(`Processing transaction ${i+1}/${allSignatures.length} for ${currentPda.description}: ${allSignatures[i].signature}`); // Commented out for performance
+    
+            // Process transactions for this PDA
+        for (let i = 0; i < allSignatures.length; i++) {
+          if (allSignatures[i].err) {
+
+            continue;
+          }
+          
+          // Add a delay between each transaction processing to avoid rate limits
+          if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 30)); // Added small delay to avoid rate limiting
+          }
+          
+          try {
+
         
         // Use our retry function
         const tx = await fetchTransactionWithRetry(allSignatures[i].signature);
         
-        if (!tx || !tx.meta || !tx.meta.innerInstructions) {
-          // console.log("No inner instructions found in transaction"); // Commented out for performance
-          continue;
-        }
+                    if (!tx || !tx.meta || !tx.meta.innerInstructions) {
+
+              continue;
+            }
         
         const txEvents = tx.meta.innerInstructions.flatMap((ix: { instructions: any[] }) => {
           return ix.instructions.map((iix: { data: string }) => {
@@ -380,10 +439,10 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
               );
               const decodedEvent = JUPITER_PERPETUALS_PROGRAM.coder.events.decode(eventData);
               
-              // Debugging: Log event names
-              // if (decodedEvent) {
-              //   console.log(`Found event: ${decodedEvent.name}`); // Commented out for performance
-              // }
+                              // Debugging: Log event names
+                // if (decodedEvent) {
+
+                // }
               
               // Format the event data for human readability
               const formattedEvent = formatEventData(decodedEvent);
@@ -434,7 +493,7 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
                           accountKeys = message.staticAccountKeys || [];
                         }
                       } catch (err) {
-                        console.log("Error getting account keys, using static keys:", err);
+                        // In case of error, fallback to static keys from the message
                         accountKeys = message.staticAccountKeys || [];
                       }
                     } else {
@@ -464,10 +523,10 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
                         const isCreateTpsl = Buffer.compare(discriminator, TPSL_INSTRUCTION_DISCRIMINATORS.instantCreateTpsl) === 0;
                         const isUpdateTpsl = Buffer.compare(discriminator, TPSL_INSTRUCTION_DISCRIMINATORS.instantUpdateTpsl) === 0;
                         
-                        if (isCreateTpsl || isUpdateTpsl) {
-                          console.log(`Found ${isCreateTpsl ? 'instantCreateTpsl' : 'instantUpdateTpsl'} instruction`);
-                          
-                          // Parse TP/SL parameters from buffer
+                                if (isCreateTpsl || isUpdateTpsl) {
+
+          
+          // Parse TP/SL parameters from buffer
                           const instructionDataBuffer = data.slice(8);
                           let offset = 0;
                           
@@ -534,13 +593,13 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
                             }
                           };
 
-                          // Store original create event data for linking
-                          if (isCreateTpsl) {
-                            // For create events, we have the complete data including size percentage
-                            console.log(`Found instantCreateTpsl instruction with entirePosition: ${entirePosition}`);
-                          } else {
-                            // For update events, we only have the limited fields from the IDL
-                            console.log(`Found instantUpdateTpsl instruction - size percentage should come from original create event`);
+                                    // Store original create event data for linking
+          if (isCreateTpsl) {
+            // For create events, we have the complete data including size percentage
+
+                                    } else {
+            // For update events, we only have the limited fields from the IDL
+
                           }
                           
                           // Add the instruction data to the event data
@@ -563,13 +622,13 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
                     }
                   }
                 } catch (error) {
-                  console.error("Error extracting TP/SL instruction data:", error);
+
                 }
               }
               
               return eventWithTx;
             } catch (error) {
-              console.log("Failed to decode instruction data");
+
               return null;
             }
           }).filter(Boolean);
@@ -579,13 +638,12 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
         
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`Error processing transaction: ${errorMessage}`);
+
       }
     }
   }
   
-  // console.log(`\n=== SUMMARY ===`); // Commented out for performance
-  // console.log(`Total events found across all PDAs: ${allEvents.length}`); // Commented out for performance
+
   
   // Sort all events chronologically before returning
   allEvents.sort((a, b) => {
@@ -609,97 +667,123 @@ export async function getPositionEvents(fromDateString?: string, walletAddress?:
       data?.event?.name === "FillLimitOrderEvent"  // Add FillLimitOrderEvent as a main event
   );
   
-  // console.log(`Found ${filteredEvents.length} relevant position events across all PDAs`); // Commented out for performance
+
+  
+
   
   return filteredEvents;
 }
 
-// Implement exponential backoff for RPC requests
-async function fetchTransactionWithRetry(signature: string, maxRetries = 3): Promise<any> { // Reduced retries for speed
+// Add retry wrapper for getSignaturesForAddress to handle rate limits during signature fetching
+async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries = 3): Promise<any> {
   let retries = 0;
-  let delay = 500; // Start with 500ms delay
+  let delay = 100; // Start with lower delay - 100ms
+  
+  // Log the request details
+  const requestId = Math.random().toString(36).substring(2, 8);
   
   while (retries < maxRetries) {
     try {
-      return await RPC_CONNECTION.getTransaction(
+      const startTime = Date.now();
+      const result = await RPC_CONNECTION.getSignaturesForAddress(positionPda, options);
+      const endTime = Date.now();
+      
+
+      
+      return result;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+
+      
+      // Check if it's a rate limit error
+      if (errorMessage.includes('429') || errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
+        retries++;
+        
+        if (retries >= maxRetries) {
+
+          throw error;
+        }
+        
+        // Exponential backoff with jitter
+        const jitter = Math.random() * 0.3 + 0.85; // Random between 0.85 and 1.15
+        delay = Math.min(delay * 2 * jitter, 5000); // Cap at 5 seconds for signature fetching
+        
+
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+
+        throw error;
+      }
+    }
+  }
+  
+  // This should never be reached due to the throw in the loop, but TypeScript needs it
+  throw new Error(`Failed to fetch signatures after ${maxRetries} retries`);
+}
+
+// Implement exponential backoff for RPC requests
+async function fetchTransactionWithRetry(signature: string, maxRetries = 3): Promise<any> {
+  let retries = 0;
+  let delay = 100; // Start with lower delay - 100ms
+  
+  // Log the request details
+  const requestId = Math.random().toString(36).substring(2, 8);
+  
+  while (retries < maxRetries) {
+    try {
+      const startTime = Date.now();
+      const result = await RPC_CONNECTION.getTransaction(
         signature,
         { 
           commitment: "confirmed",
           maxSupportedTransactionVersion: 0
         }
       );
+      const endTime = Date.now();
+      
+
+      
+      return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       
+
+      
       // Check if it's a rate limit error
-      if (errorMessage.includes("429") || errorMessage.includes("Too Many Requests")) {
+      if (errorMessage.includes('429') || errorMessage.includes('rate limit') || errorMessage.includes('too many requests')) {
         retries++;
         
         if (retries >= maxRetries) {
-          // console.log(`Maximum retries (${maxRetries}) reached. Giving up.`); // Commented out for performance
+
           throw error;
         }
         
         // Exponential backoff with jitter
         const jitter = Math.random() * 0.3 + 0.85; // Random between 0.85 and 1.15
-        delay = Math.min(delay * 2 * jitter, 10000); // Cap at 10 seconds
+        delay = Math.min(delay * 2 * jitter, 5000); // Cap at 5 seconds
         
-        // console.log(`Rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`); // Commented out for performance
+
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
-        // For non-rate-limit errors, just throw
+
         throw error;
       }
     }
   }
-}
-
-// Add retry wrapper for getSignaturesForAddress to handle rate limits during signature fetching
-async function getSignaturesWithRetry(positionPda: any, options: any, maxRetries = 3): Promise<any> { // Reduced retries for speed
-  let retries = 0;
-  let delay = 500; // Start with 500ms delay
   
-  while (retries < maxRetries) {
-    try {
-      return await RPC_CONNECTION.getSignaturesForAddress(positionPda, options);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      
-      // Check if it's a rate limit error
-      if (errorMessage.includes("429") || errorMessage.includes("Too Many Requests")) {
-        retries++;
-        
-        if (retries >= maxRetries) {
-          // console.log(`Maximum retries (${maxRetries}) reached for signature fetching. Giving up.`); // Commented out for performance
-          throw error;
-        }
-        
-        // Exponential backoff with jitter
-        const jitter = Math.random() * 0.3 + 0.85; // Random between 0.85 and 1.15
-        delay = Math.min(delay * 2 * jitter, 15000); // Cap at 15 seconds for signature fetching
-        
-        // console.log(`Signature fetch rate limited. Retry ${retries}/${maxRetries} after ${Math.round(delay)}ms delay...`); // Commented out for performance
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        // For non-rate-limit errors, just throw
-        throw error;
-      }
-    }
-  }
+  // This should never be reached due to the throw in the loop, but TypeScript needs it
+  throw new Error(`Failed to fetch transaction after ${maxRetries} retries`);
 }
 
-/**
- * Parse TP/SL instruction data from transaction
- * This function fetches the transaction that contains a TP/SL event and decodes the instruction data using the IDL
- */
 async function getTpslInstructionData(txSignature: string): Promise<any> {
   try {
     // Fetch the transaction with retry
-    // console.log(`Fetching transaction ${txSignature} to decode TP/SL instruction data...`); // Commented out for performance
+
     const tx = await fetchTransactionWithRetry(txSignature);
     
     if (!tx || !tx.transaction) {
-      // console.log("Transaction not found or has no data"); // Commented out for performance
+
       return null;
     }
     
@@ -726,7 +810,7 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             accountKeys = message.staticAccountKeys || [];
           }
         } catch (err) {
-          // console.log("Error getting account keys, using static keys:", err); // Commented out for performance
+
           accountKeys = message.staticAccountKeys || [];
         }
       } else {
@@ -735,19 +819,19 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
         accountKeys = (message as any).accountKeys;
       }
     } else {
-      // console.log("Unexpected transaction format"); // Commented out for performance
+
       return null;
     }
     
     if (!instructions || !accountKeys) {
-      // console.log("Could not extract instructions or account keys"); // Commented out for performance
+
       return null;
     }
     
-    // console.log(`Found ${instructions.length} instructions in transaction`); // Commented out for performance
+
     
     // Enhanced debugging: print some transaction information
-    // console.log(`Transaction details: Slot ${tx.slot}, ${accountKeys.length} account keys`); // Commented out for performance
+
     
     // Find the TP/SL instruction
     for (let i = 0; i < instructions.length; i++) {
@@ -772,7 +856,7 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
           const isUpdateTpsl = Buffer.compare(discriminator, TPSL_INSTRUCTION_DISCRIMINATORS.instantUpdateTpsl) === 0;
           
           if (isCreateTpsl || isUpdateTpsl) {
-            // console.log(`Found ${isCreateTpsl ? 'instantCreateTpsl' : 'instantUpdateTpsl'} instruction`); // Commented out for performance
+  
             
             // Parse TP/SL parameters from buffer
             const instructionDataBuffer = data.slice(8);
@@ -844,10 +928,10 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             // Store original create event data for linking
             if (isCreateTpsl) {
               // For create events, we have the complete data including size percentage
-              // console.log(`Found instantCreateTpsl instruction with entirePosition: ${entirePosition}`); // Commented out for performance
+  
             } else {
               // For update events, we only have the limited fields from the IDL
-              // console.log(`Found instantUpdateTpsl instruction - size percentage should come from original create event`); // Commented out for performance
+  
             }
             
             return {
@@ -864,16 +948,16 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
             };
           }
         } catch (err) {
-          // console.log("Error parsing instruction data:", err); // Commented out for performance
+
           return null;
         }
       }
     }
     
-    // console.log("No TP/SL instruction found in transaction"); // Commented out for performance
+
     return null;
   } catch (err) {
-    // console.log("Error processing transaction:", err); // Commented out for performance
+
     return null;
   }
 }
@@ -885,11 +969,11 @@ async function getTpslInstructionData(txSignature: string): Promise<any> {
 async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
   try {
     // Fetch the transaction with retry
-    // console.log(`Fetching transaction ${txSignature} to decode limit order instruction data...`); // Commented out for performance
+
     const tx = await fetchTransactionWithRetry(txSignature);
     
     if (!tx || !tx.transaction) {
-      // console.log("Transaction not found or has no data"); // Commented out for performance
+ // Commented out for performance
       return null;
     }
     
@@ -916,7 +1000,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
             accountKeys = message.staticAccountKeys || [];
           }
         } catch (err) {
-          // console.log("Error getting account keys, using static keys:", err); // Commented out for performance
+
           accountKeys = message.staticAccountKeys || [];
         }
       } else {
@@ -925,12 +1009,12 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
         accountKeys = (message as any).accountKeys;
       }
     } else {
-      // console.log("Unexpected transaction format"); // Commented out for performance
+
       return null;
     }
     
     if (!instructions || !accountKeys) {
-      // console.log("Could not extract instructions or account keys"); // Commented out for performance
+
       return null;
     }
     
@@ -965,7 +1049,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
           for (const name of possibleDiscriminatorNames) {
             const calculatedDiscr = Buffer.from(utils.sha256.hash(name).slice(0, 8));
             if (Buffer.compare(discriminator, calculatedDiscr) === 0) {
-              // console.log(`Found potential limit order instruction (${name}): [${Array.from(discriminator)}]`); // Commented out for performance
+
               
               // If we find a match, save it for future reference
               if (name.includes("create")) {
@@ -988,7 +1072,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
         
         if (isCreateLimitOrder || isUpdateLimitOrder) {
           // This is a limit order instruction
-          // console.log(`Found ${isCreateLimitOrder ? 'instantCreateLimitOrder' : 'instantUpdateLimitOrder'} instruction`); // Commented out for performance
+
           
           try {
             // Use Anchor's BorshCoder to decode the instruction data
@@ -1008,13 +1092,13 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
                 params: args
               };
             } catch (err) {
-              // console.log(`Failed to decode ${ixName} instruction:`, err); // Commented out for performance
+
               
               // Fallback to binary parsing if needed
               // Structure of limit order params (based on IDL):
               // Price, size, etc.
               const instructionDataBuffer = data.slice(8);
-              // console.log("Instruction data (hex):", Buffer.from(instructionDataBuffer).toString('hex')); // Commented out for performance
+
               
               // Extract common fields we expect in limit orders
               let offset = 0;
@@ -1022,18 +1106,18 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
               // Try to extract price (u64/BN)
               if (offset + 8 <= instructionDataBuffer.length) {
                 const price = new BN(instructionDataBuffer.slice(offset, offset + 8), 'le');
-                // console.log(`Potential limit price: $${BNToUSDRepresentation(price, USDC_DECIMALS)}`); // Commented out for performance
+
                 offset += 8;
               }
               
               // Try to extract size (u64/BN)
               if (offset + 8 <= instructionDataBuffer.length) {
                 const size = new BN(instructionDataBuffer.slice(offset, offset + 8), 'le');
-                // console.log(`Potential size: $${BNToUSDRepresentation(size, USDC_DECIMALS)}`); // Commented out for performance
+
               }
             }
           } catch (error) {
-            // console.error(`Error processing limit order instruction: ${error instanceof Error ? error.message : String(error)}`); // Commented out for performance
+
           }
         }
       }
@@ -1047,7 +1131,7 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
     
     return null;
   } catch (err) {
-    // console.log("Error processing transaction:", err); // Commented out for performance
+
     return null;
   }
 }
@@ -1058,6 +1142,23 @@ async function getLimitOrderInstructionData(txSignature: string): Promise<any> {
 function parseUsdValue(value: string): number {
   if (!value) return 0;
   return parseFloat(value.replace('$', '').replace(',', ''));
+}
+
+/**
+ * Calculate actual PnL using Jupiter's hasProfit field and absolute pnlDelta value
+ * This is more reliable than price calculations since Jupiter provides the profit/loss direction
+ */
+function calculateActualPnl(
+  hasProfit: boolean | undefined,
+  pnlDelta: number
+): number {
+  if (hasProfit === undefined || pnlDelta === 0) {
+    return 0;
+  }
+  
+  // Use Jupiter's hasProfit field to determine the sign
+  // pnlDelta is always positive, so we apply the correct sign based on hasProfit
+  return hasProfit ? Math.abs(pnlDelta) : -Math.abs(pnlDelta);
 }
 
 /**
@@ -1102,10 +1203,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
     }
   });
 
-  // Maps to track active trades and lifecycle counters
+  // Maps to track active trades by position key (since each position can only have one active trade)
   const activeTrades: Map<string, ITrade> = new Map();
   const completedTrades: ITrade[] = [];
-  const lifecycleCounters: Map<string, number> = new Map();
 
   // Process each execution event
   for (const eventWithTx of positionEvents) {
@@ -1117,17 +1217,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
     
     // Get position key
     const positionKey = data.positionKey;
-    
-    // Initialize lifecycle counter if needed
-    if (!lifecycleCounters.has(positionKey)) {
-      lifecycleCounters.set(positionKey, 0);
-    }
-    
-    const lifecycleCount = lifecycleCounters.get(positionKey) || 0;
-    const tradeId = `${positionKey}-${lifecycleCount}`;
 
     // Check if we have an active trade for this position
-    const activeTrade = activeTrades.get(tradeId);
+    const activeTrade = activeTrades.get(positionKey);
 
     // Get all events with the same timestamp to include auxiliary events
     const allEventsAtTimestamp = eventsByTimestamp.get(tx.blockTime || '') || [];
@@ -1144,6 +1236,9 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       if (!activeTrade) {
         // Get asset symbol from the custody address
         const assetSymbol = getAssetNameFromCustody(data.positionCustody || "");
+        
+        // Generate deterministic trade ID using position key and first event timestamp
+        const tradeId = generateTradeId(positionKey, tx.blockTime || new Date().toISOString());
         
         // This is a new trade
         const newTrade: ITrade = {
@@ -1166,7 +1261,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
         // Add all events with the same timestamp (including preswap and swap events)
         newTrade.events = allEventsAtTimestamp;
         
-        activeTrades.set(tradeId, newTrade);
+        activeTrades.set(positionKey, newTrade);
       } else {
         // This is adding to an existing position
         const newCollateralUsd = activeTrade.collateralUsd + collateralUsdDelta;
@@ -1203,7 +1298,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       
       if (!activeTrade) {
         // We have a decrease event but no matching active trade
-        console.error(`Error: Found decrease event for position ${positionKey} but no active trade was found. The opening event is likely missing from the data.`);
+
         continue;
       }
       
@@ -1224,8 +1319,16 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       
       // Update the trade with the latest data
       activeTrade.exitPrice = price;
-      activeTrade.pnl = (activeTrade.pnl || 0) + pnlDelta;
-      activeTrade.hasProfit = data.hasProfit;
+      
+      // Use Jupiter's hasProfit field with the absolute pnlDelta value
+      // This is more reliable than price calculations
+      const actualPnlDelta = calculateActualPnl(
+        data.hasProfit,
+        pnlDelta
+      );
+      
+      activeTrade.pnl = (activeTrade.pnl || 0) + actualPnlDelta;
+      activeTrade.hasProfit = (activeTrade.pnl || 0) > 0;
       activeTrade.totalFees = (activeTrade.totalFees || 0) + fee; // Add to total fees
       
       // Calculate ROI based on PnL and collateral
@@ -1244,10 +1347,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
         activeTrade.sizeUsd = 0; // Set size to 0 as it's fully closed
         
         completedTrades.push({ ...activeTrade });
-        activeTrades.delete(tradeId);
-        
-        // Increment lifecycle counter for this position
-        lifecycleCounters.set(positionKey, lifecycleCount + 1);
+        activeTrades.delete(positionKey);
       } else {
         // This is a partial decrease
         activeTrade.sizeUsd -= sizeUsdDelta;
@@ -1260,7 +1360,7 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       
       if (!activeTrade) {
         // We have a liquidation event but no matching active trade
-        console.error(`Error: Found liquidation event for position ${positionKey} but no active trade was found. The opening event is likely missing from the data.`);
+
         continue;
       }
       
@@ -1283,8 +1383,15 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       activeTrade.status = "liquidated";
       activeTrade.exitPrice = price;
       activeTrade.closeTime = tx.blockTime;
-      activeTrade.pnl = (activeTrade.pnl || 0) + pnlDelta;
-      activeTrade.hasProfit = data.hasProfit;
+      
+      // Use Jupiter's hasProfit field with the absolute pnlDelta value for liquidation
+      const actualPnlDelta = calculateActualPnl(
+        data.hasProfit,
+        pnlDelta
+      );
+      
+      activeTrade.pnl = (activeTrade.pnl || 0) + actualPnlDelta;
+      activeTrade.hasProfit = (activeTrade.pnl || 0) > 0;
       activeTrade.totalFees = (activeTrade.totalFees || 0) + fee + liquidationFee;  // Add liquidation fee to total
       
       // Store the maximum size the position reached
@@ -1298,16 +1405,13 @@ export function groupEventsIntoTrades(events: EventWithTx[]): { activeTrades: IT
       
       // Move to completed trades
       completedTrades.push({ ...activeTrade });
-      activeTrades.delete(tradeId);
-      
-      // Increment lifecycle counter for this position
-      lifecycleCounters.set(positionKey, lifecycleCount + 1);
+      activeTrades.delete(positionKey);
     }
     // Handle TP/SL events
     else if (name === 'InstantCreateTpslEvent' || name === 'InstantUpdateTpslEvent') {
       // For TP/SL events, we need to find the active trade for this position
       if (!activeTrade) {
-        console.error(`Error: Found TP/SL event for position ${positionKey} but no active trade was found.`);
+
         continue;
       }
 
@@ -1479,191 +1583,9 @@ export async function getPositionTradeHistory(fromDateString?: string, walletAdd
   // Get all events for the wallet's position PDAs with date filtering
   const events = await getPositionEvents(fromDateString, walletAddress, toDateString);
   
-  // Display raw events first
-  console.log("\n======== RAW EVENTS ========");
-  events.forEach((evt, i) => {
-    if (evt && evt.event) {
-      console.log(`\nEvent ${i+1}:`);
-      console.log(`Type: ${evt.event.name}`);
-      console.log(`Transaction: ${evt.tx.signature}`);
-      console.log(`Time: ${evt.tx.blockTime}`);
-      
-      // Special handling for TP/SL events - show the instruction data too
-      if (evt.event.name === 'InstantCreateTpslEvent' || evt.event.name === 'InstantUpdateTpslEvent') {
-        // Extract tpslInstructionData first so we can display it separately
-        const { tpslInstructionData, ...eventData } = evt.event.data;
-        
-        // Display regular event data
-        console.log("Event Data:", eventData);
-        
-        // Display TP/SL instruction data if available
-        if (tpslInstructionData) {
-          console.log("TP/SL Instruction Data:");
-          console.log(`  Instruction: ${tpslInstructionData.instructionName}`);
-          
-          // For update events, try to find the original create event to get correct values
-          let actualEntirePosition = eventData.tpslEntirePosition;
-          let actualSizePercentage = "Size from original create event";
-          let actualTriggerAboveThreshold = eventData.tpslTriggerAboveThreshold;
-          
-          if (tpslInstructionData.instructionName === 'instantUpdateTpsl') {
-            const originalCreateData = findOriginalCreateTpslEvent(events, evt);
-            if (originalCreateData && originalCreateData.params) {
-              actualEntirePosition = originalCreateData.params.entirePosition;
-              actualTriggerAboveThreshold = originalCreateData.params.triggerAboveThreshold;
-              actualSizePercentage = actualEntirePosition ? '100%' : 'Partial position';
-            }
-          } else if (tpslInstructionData.instructionName === 'instantCreateTpsl') {
-            // For create events, use the values directly from the event
-            actualSizePercentage = actualEntirePosition ? '100%' : 'Partial position';
-          }
-          
-          // Only show collateral delta for create events
-          if (tpslInstructionData.instructionName === 'instantCreateTpsl') {
-            console.log(`  Collateral USD Delta: ${eventData.tpslCollateralUsdDelta || '$0.00'}`);
-          }
-          
-          console.log(`  Size USD Delta: ${eventData.tpslSizeUsdDelta || '$0.00'}`);
-          console.log(`  Trigger Price: ${eventData.tpslTriggerPrice || 'N/A'}`);
-          console.log(`  Trigger Above Threshold: ${actualTriggerAboveThreshold ? 'Yes (Take Profit)' : 'No (Stop Loss)'}`);
-          console.log(`  Entire Position: ${actualEntirePosition ? 'Yes (100%)' : 'No (Partial)'}`);
-          
-          if (eventData.tpslCounter && eventData.tpslCounter !== '0') console.log(`  Counter: ${eventData.tpslCounter}`);
-          if (eventData.tpslRequestTime && eventData.tpslRequestTime !== '1970-01-01T00:00:00.000Z') console.log(`  Request Time: ${eventData.tpslRequestTime}`);
-          
-          // Add the interpreted TP/SL values for clarity
-          console.log(`  Order Type: ${actualTriggerAboveThreshold ? 'Take Profit' : 'Stop Loss'}`);
-          
-          if (actualTriggerAboveThreshold) {
-            console.log(`  Take Profit Price: ${eventData.tpslTriggerPrice}`);
-            console.log(`  Take Profit Size: ${actualSizePercentage}`);
-          } else {
-            console.log(`  Stop Loss Price: ${eventData.tpslTriggerPrice}`);
-            console.log(`  Stop Loss Size: ${actualSizePercentage}`);
-          }
-        } else {
-          console.log("TP/SL Instruction Data: Fetching from transaction...");
-          // Immediately fetch and display the instruction data
-          getTpslInstructionData(evt.tx.signature).then(tpslData => {
-            if (tpslData && tpslData.params) {
-              console.log("Found TP/SL Instruction Data:");
-              
-              // Show all raw parameters
-              console.log(`  Instruction: ${tpslData.instructionName}`);
-              
-              // For update events, try to find the original create event to get correct values
-              let actualEntirePosition = tpslData.params.entirePosition;
-              let actualSizePercentage = "Size from original create event";
-              let actualTriggerAboveThreshold = tpslData.params.triggerAboveThreshold;
-              
-              if (tpslData.instructionName === 'instantUpdateTpsl') {
-                const originalCreateData = findOriginalCreateTpslEvent(events, evt);
-                if (originalCreateData && originalCreateData.params) {
-                  actualEntirePosition = originalCreateData.params.entirePosition;
-                  actualTriggerAboveThreshold = originalCreateData.params.triggerAboveThreshold;
-                  actualSizePercentage = actualEntirePosition ? '100%' : 'Partial position';
-                }
-              } else if (tpslData.instructionName === 'instantCreateTpsl') {
-                // For create events, use the values directly from the event
-                actualSizePercentage = actualEntirePosition ? '100%' : 'Partial position';
-              }
-              
-              // Only show collateral delta for create events
-              if (tpslData.instructionName === 'instantCreateTpsl') {
-                console.log(`  Collateral USD Delta: $${BNToUSDRepresentation(tpslData.params.collateralUsdDelta, USDC_DECIMALS)}`);
-              }
-              
-              console.log(`  Size USD Delta: $${BNToUSDRepresentation(tpslData.params.sizeUsdDelta, USDC_DECIMALS)}`);
-              console.log(`  Trigger Price: $${BNToUSDRepresentation(tpslData.params.triggerPrice, USDC_DECIMALS)}`);
-              console.log(`  Trigger Above Threshold: ${actualTriggerAboveThreshold ? 'Yes (Take Profit)' : 'No (Stop Loss)'}`);
-              console.log(`  Entire Position: ${actualEntirePosition ? 'Yes (100%)' : 'No (Partial)'}`);
-              
-              if (tpslData.params.counter && tpslData.params.counter.toString() !== '0') 
-                console.log(`  Counter: ${tpslData.params.counter.toString()}`);
-              
-              if (tpslData.params.requestTime && tpslData.params.requestTime.toNumber() !== 0) {
-                const timestamp = new Date(tpslData.params.requestTime.toNumber() * 1000).toISOString();
-                console.log(`  Request Time: ${timestamp}`);
-              }
-              
-              // Show interpreted values
-              console.log(`  Order Type: ${actualTriggerAboveThreshold ? 'Take Profit' : 'Stop Loss'}`);
-              
-              if (actualTriggerAboveThreshold) {
-                const tpPrice = BNToUSDRepresentation(tpslData.params.triggerPrice, USDC_DECIMALS);
-                console.log(`  Take Profit Price: $${tpPrice}`);
-                console.log(`  Take Profit Size: ${actualSizePercentage}`);
-              } else {
-                const slPrice = BNToUSDRepresentation(tpslData.params.triggerPrice, USDC_DECIMALS);
-                console.log(`  Stop Loss Price: $${slPrice}`);
-                console.log(`  Stop Loss Size: ${actualSizePercentage}`);
-              }
-            } else {
-              console.log("  Failed to extract TP/SL instruction data from transaction");
-            }
-          }).catch(err => {
-            console.log("  Error fetching TP/SL instruction data:", err.message);
-          });
-        }
-      } 
-      // Add handling for limit order events
-      else if (evt.event.name === 'InstantCreateLimitOrderEvent' || evt.event.name === 'InstantUpdateLimitOrderEvent' || evt.event.name === 'FillLimitOrderEvent') {
-        // Extract limit order instruction data first
-        const { limitOrderInstructionData, ...eventData } = evt.event.data;
-        
-        // Display regular event data
-        console.log("Event Data:", eventData);
-        
-        // Try to fetch and decode the limit order instruction data if not already available
-        if (!limitOrderInstructionData) {
-          console.log("Limit Order Instruction Data: Fetching from transaction...");
-          
-          // Fetch limit order data asynchronously
-          getLimitOrderInstructionData(evt.tx.signature).then(orderData => {
-            if (orderData) {
-              console.log("Found Limit Order Instruction Data:");
-              console.log(`  Instruction: ${orderData.instructionName}`);
-              
-              // Format and display parameters based on instruction type
-              if (orderData.params) {
-                // Create or Update limit order
-                if (orderData.params.price) {
-                  console.log(`  Limit Price: $${BNToUSDRepresentation(orderData.params.price, USDC_DECIMALS)}`);
-                }
-                
-                if (orderData.params.size) {
-                  console.log(`  Size: $${BNToUSDRepresentation(orderData.params.size, USDC_DECIMALS)}`);
-                }
-                
-                // Add any other relevant fields
-                if (orderData.params.orderType !== undefined) {
-                  console.log(`  Order Type: ${orderData.params.orderType === 0 ? 'Buy' : 'Sell'}`);
-                }
-              }
-            } else {
-              console.log("  Failed to extract limit order instruction data");
-            }
-          }).catch(err => {
-            console.log("  Error fetching limit order data:", err.message);
-          });
-        } else {
-          // If we already have the data, display it
-          console.log("Limit Order Instruction Data:");
-          console.log(limitOrderInstructionData);
-        }
-      }
-      // Add special handling for pool swap events
-      else if (evt.event.name === 'PoolSwapEvent' || evt.event.name === 'PoolSwapExactOutEvent') {
-        // Just display the raw data as fetched/parsed
-        console.log("Event Data:", evt.event.data);
-      }
-      else {
-        // Regular event display
-        console.log("Data:", evt.event.data);
-      }
-    }
-  });
-  console.log("============================\n");
+  // Commented out raw events display for clean JSON output
+
+  // ... (raw events logging code removed for clean JSON output) ...
   
   // Group events into trades
   return groupEventsIntoTrades(events);
@@ -1679,11 +1601,6 @@ export async function getPositionTradeHistoryParallel(fromDateString?: string, w
   }
   // Get all events for the wallet's position PDAs with date filtering using parallel processing
   const events = await getPositionEventsParallel(fromDateString, walletAddress, toDateString);
-  
-  // Display raw events first
-  console.log("\n======== RAW EVENTS (PARALLEL) ========");
-  console.log(`Found ${events.length} events`);
-  console.log("=======================================\n");
   
   // Group events into trades (same logic as sequential version)
   return groupEventsIntoTrades(events);
@@ -1711,161 +1628,43 @@ function formatLimitOrderData(data: any): string {
 }
 
 /**
- * Example usage with date support and wallet address
+ * Example usage with date support and wallet address - JSON output version
  */
-async function analyzeTradeHistory(fromDateString?: string, walletAddress?: string, toDateString?: string) {
-  // Store start time for performance tracking
-  const startTime = Date.now();
-  
+export async function analyzeTradeHistoryJson(fromDateString?: string, walletAddress?: string, toDateString?: string): Promise<JsonOutput> {
+  if (!walletAddress) {
+    throw new Error("Wallet address is required");
+  }
+  const wallet = walletAddress;
   // Use parallel version for faster execution
   const { activeTrades, completedTrades } = await getPositionTradeHistoryParallel(fromDateString, walletAddress, toDateString);
+  // Transform to JSON format
+  const jsonOutput = transformTradesToJson(activeTrades, completedTrades, wallet);
+  return jsonOutput;
+}
+
+/**
+ * Legacy function for console output (kept for backward compatibility)
+ */
+async function analyzeTradeHistory(fromDateString?: string, walletAddress?: string, toDateString?: string) {
+  const { activeTrades, completedTrades } = await getPositionTradeHistory(fromDateString, walletAddress, toDateString);
   
-  console.log(`\n======== TRADE SUMMARY ========`);
-  if (fromDateString && toDateString) {
-    console.log(`Date range: From ${fromDateString} to ${toDateString}`);
-  } else if (fromDateString) {
-    console.log(`Date range: From ${fromDateString} to now`);
-  } else {
-    console.log(`Date range: Last 30 days (default)`);
-  }
-  if (walletAddress) {
-    console.log(`Wallet: ${walletAddress}`);
-  } else {
-    console.log(`Wallet: CZKPYBkGXg1G6W8EXLxHDLRwsYtMz8TBk1qfPgCMzxG1 (default)`);
-  }
-  console.log(`Active trades: ${activeTrades.length}`);
-  console.log(`Completed trades: ${completedTrades.length}`);
+
   
   // Print detailed trade information
   if (activeTrades.length > 0) {
-    console.log("\n------- ACTIVE TRADES -------");
+
     for (let i = 0; i < activeTrades.length; i++) {
       await printDetailedTradeInfo(activeTrades[i], i);
     }
   }
   
   if (completedTrades.length > 0) {
-    console.log("\n------- COMPLETED TRADES -------");
+
     for (let i = 0; i < completedTrades.length; i++) {
       await printDetailedTradeInfo(completedTrades[i], i);
     }
   }
-  
-  console.log("===============================");
-  
-  // Add comprehensive analytics at the end
-  console.log("\n📊 DETAILED ANALYTICS");
-  console.log("─".repeat(50));
-  
-  // Calculate execution time
-  const executionTime = ((Date.now() - startTime) / 1000).toFixed(2);
-  console.log(`⚡ Execution time: ${executionTime}s`);
-  
-  // Count total events across all trades
-  const allEvents = [...activeTrades, ...completedTrades].flatMap(trade => trade.events);
-  console.log(`📋 Total events processed: ${allEvents.length}`);
-  
-  // Break down events by type
-  const eventCounts: { [key: string]: number } = {};
-  allEvents.forEach(event => {
-    if (event?.event?.name) {
-      eventCounts[event.event.name] = (eventCounts[event.event.name] || 0) + 1;
-    }
-  });
-  
-  console.log(`\n📊 Event breakdown:`);
-  Object.entries(eventCounts)
-    .sort(([,a], [,b]) => b - a) // Sort by count descending
-    .forEach(([eventType, count]) => {
-      console.log(`   ${eventType}: ${count}`);
-    });
-  
-  // Trade statistics
-  const totalTrades = activeTrades.length + completedTrades.length;
-  console.log(`\n💼 Trade statistics:`);
-  console.log(`   Total trades: ${totalTrades}`);
-  console.log(`   Active: ${activeTrades.length} (${totalTrades > 0 ? ((activeTrades.length / totalTrades) * 100).toFixed(1) : 0}%)`);
-  console.log(`   Closed: ${completedTrades.filter(t => t.status === 'closed').length}`);
-  console.log(`   Liquidated: ${completedTrades.filter(t => t.status === 'liquidated').length}`);
-  
-  // PnL analysis for completed trades
-  const completedWithPnl = completedTrades.filter(t => t.pnl !== undefined);
-  if (completedWithPnl.length > 0) {
-    const totalPnl = completedWithPnl.reduce((sum, trade) => sum + (trade.pnl || 0), 0);
-    const profitableTrades = completedWithPnl.filter(t => (t.pnl || 0) > 0);
-    const winRate = (profitableTrades.length / completedWithPnl.length) * 100;
-    
-    console.log(`\n💰 PnL analysis:`);
-    console.log(`   Total realized PnL: $${totalPnl.toFixed(2)}`);
-    console.log(`   Win rate: ${winRate.toFixed(1)}% (${profitableTrades.length}/${completedWithPnl.length})`);
-    console.log(`   Average PnL: $${(totalPnl / completedWithPnl.length).toFixed(2)}`);
-    
-    if (profitableTrades.length > 0) {
-      const avgWin = profitableTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / profitableTrades.length;
-      console.log(`   Average win: $${avgWin.toFixed(2)}`);
-    }
-    
-    const losingTrades = completedWithPnl.filter(t => (t.pnl || 0) < 0);
-    if (losingTrades.length > 0) {
-      const avgLoss = losingTrades.reduce((sum, t) => sum + (t.pnl || 0), 0) / losingTrades.length;
-      console.log(`   Average loss: $${avgLoss.toFixed(2)}`);
-    }
-  }
-  
-  // Position analysis
-  const allTradesForAnalysis = [...activeTrades, ...completedTrades];
-  if (allTradesForAnalysis.length > 0) {
-    const longTrades = allTradesForAnalysis.filter(t => t.positionSide === 'Long');
-    const shortTrades = allTradesForAnalysis.filter(t => t.positionSide === 'Short');
-    
-    console.log(`\n📈 Position analysis:`);
-    console.log(`   Long positions: ${longTrades.length} (${((longTrades.length / allTradesForAnalysis.length) * 100).toFixed(1)}%)`);
-    console.log(`   Short positions: ${shortTrades.length} (${((shortTrades.length / allTradesForAnalysis.length) * 100).toFixed(1)}%)`);
-    
-    // Asset breakdown
-    const assetCounts: { [key: string]: number } = {};
-    allTradesForAnalysis.forEach(trade => {
-      if (trade.asset) {
-        assetCounts[trade.asset] = (assetCounts[trade.asset] || 0) + 1;
-      }
-    });
-    
-    if (Object.keys(assetCounts).length > 0) {
-      console.log(`\n🏷️  Asset breakdown:`);
-      Object.entries(assetCounts)
-        .sort(([,a], [,b]) => b - a)
-        .forEach(([asset, count]) => {
-          console.log(`   ${asset}: ${count} trades`);
-        });
-    }
-    
-    // Size and leverage analysis
-    const sizesUsd = allTradesForAnalysis.map(t => t.sizeUsd).filter(s => s > 0);
-    const leverages = allTradesForAnalysis.map(t => t.leverage).filter(l => l > 0);
-    
-    if (sizesUsd.length > 0) {
-      const avgSize = sizesUsd.reduce((sum, size) => sum + size, 0) / sizesUsd.length;
-      const maxSize = Math.max(...sizesUsd);
-      const minSize = Math.min(...sizesUsd);
-      
-      console.log(`\n📏 Size analysis:`);
-      console.log(`   Average position size: $${avgSize.toFixed(2)}`);
-      console.log(`   Largest position: $${maxSize.toFixed(2)}`);
-      console.log(`   Smallest position: $${minSize.toFixed(2)}`);
-    }
-    
-    if (leverages.length > 0) {
-      const avgLeverage = leverages.reduce((sum, lev) => sum + lev, 0) / leverages.length;
-      const maxLeverage = Math.max(...leverages);
-      
-      console.log(`\n🎯 Leverage analysis:`);
-      console.log(`   Average leverage: ${avgLeverage.toFixed(2)}x`);
-      console.log(`   Maximum leverage: ${maxLeverage.toFixed(2)}x`);
-    }
-  }
-  
-  console.log("─".repeat(50));
-  console.log("✅ Analysis complete!\n");
+
 }
 
 // Update the printDetailedTradeInfo function to better display TP/SL data and add limit order info
@@ -1875,52 +1674,43 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
   const pnl = trade.pnl ? `$${trade.pnl.toFixed(2)}` : "N/A";
   const roi = trade.roi ? `${trade.roi.toFixed(2)}%` : "N/A";
   
-  console.log(`\nTrade #${index + 1} (ID: ${trade.id}):`);
+
   // Debug - Check if InstantCreateTpslEvent is in the events array
   
   // Replace Position field with Symbol
-  if (trade.asset) {
-    console.log(`Symbol: ${trade.asset}`);
-  }
+
   
   // Show just Long or Short as Direction
-  console.log(`Direction: ${side}`);
+
   
-  console.log(`Status: ${status}`);
-  console.log(`Entry Price: $${trade.entryPrice.toFixed(2)}`);
+
+
   
   if (trade.exitPrice) {
-    console.log(`Exit Price: $${trade.exitPrice.toFixed(2)}`);
+
   }
   
   // Show finalSize for completed trades if available, otherwise show sizeUsd
   const displaySize = (trade.status !== "active" && trade.finalSize) ? 
     trade.finalSize : trade.sizeUsd;
-  console.log(`Size: $${displaySize.toFixed(2)}`);
   
   // Show max size if it's different from current size (indicating multiple increases)
   if (trade.maxSize && trade.maxSize !== displaySize) {
-    console.log(`Max Size: $${trade.maxSize.toFixed(2)}`);
+
   }
   
   // Calculate and display notional size using the display size (current/final size)
   if (trade.entryPrice > 0) {
     const notionalSize = displaySize / trade.entryPrice;
-    console.log(`Notional Size: ${notionalSize.toFixed(6)} ${trade.asset || ''}`);
   }
   
-  console.log(`Collateral: $${trade.collateralUsd.toFixed(2)}`);
-  console.log(`Leverage: ${trade.leverage.toFixed(2)}x`);
+
+
   
   // Display total fees
-  if (trade.totalFees !== undefined) {
-    console.log(`Total Fees: $${trade.totalFees.toFixed(2)}`);
-  }
+
   
-  if (trade.pnl !== undefined) {
-    console.log(`PnL: ${pnl} (${roi})`);
-    console.log(`Profitable: ${trade.hasProfit ? "Yes" : "No"}`);
-  }
+
   
   // Add token information for the position
   const firstEvent = trade.events.find(evt => 
@@ -1930,7 +1720,6 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
   
   if (firstEvent?.event?.data) {
     const collateralCustody = firstEvent.event.data.positionCollateralCustody;
-    console.log(`Collateral Token: ${getAssetNameFromCustody(collateralCustody)}`);
   }
   
   // Check for swaps in the trade
@@ -1994,28 +1783,7 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
   const openingSwaps = hasOpeningSwap || openingSwapByTokens;
   const closingSwaps = hasClosingSwap || closingSwapByTokens;
 
-  if (swapsDetected) {
-    console.log(`Swaps: ${openingSwaps ? 'Opening' : ''}${openingSwaps && closingSwaps ? ' and ' : ''}${closingSwaps ? 'Closing' : ''}`);
-    
-    // Additional debug info if tokens suggest swaps but events don't
-    if (swapDetectedByTokens && !(hasOpeningSwap || hasClosingSwap)) {
-      console.log(`  (Detected by token comparison)`);
-      
-      if (openingSwapByTokens && firstIncreaseEvent?.event?.data) {
-        const data = firstIncreaseEvent.event.data;
-        if (data.positionRequestMint && data.positionCollateralCustody) {
-          console.log(`  Opening: ${getSymbolFromMint(data.positionRequestMint)} → ${getAssetNameFromCustody(data.positionCollateralCustody)}`);
-        }
-      }
-      
-      if (closingSwapByTokens && lastDecreaseEvent?.event?.data) {
-        const data = lastDecreaseEvent.event.data;
-        if (data.positionCollateralCustody && data.positionRequestMint) {
-          console.log(`  Closing: ${getAssetNameFromCustody(data.positionCollateralCustody)} → ${getSymbolFromMint(data.positionRequestMint)}`);
-        }
-      }
-    }
-  }
+
   
   // Add payout information for closed/liquidated positions
   if (trade.status !== "active") {
@@ -2028,9 +1796,7 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
     if (lastEvent?.event?.data) {
       const data = lastEvent.event.data;
       
-      if (data.transferAmountUsd) {
-        console.log(`Payout (USD): $${parseUsdValue(data.transferAmountUsd).toFixed(2)}`);
-      }
+
       
       if (data.transferToken) {
         const tokenAmount = Number(data.transferToken);
@@ -2054,7 +1820,6 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
         }
         
         const formattedAmount = (tokenAmount / Math.pow(10, decimals)).toFixed(decimals === 9 ? 6 : 2);
-        console.log(`Payout (Token): ${formattedAmount} ${tokenSymbol}`);
         
         // If we have both USD and token amounts, calculate implied swap fee
         if (data.transferAmountUsd && parseUsdValue(data.transferAmountUsd) > 0) {
@@ -2064,18 +1829,15 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
           // If there's a significant difference, it might indicate swap fees
           if (Math.abs(usdAmount - tokenInUsd) > 0.1 && tokenSymbol === "USDC") {
             const impliedFee = usdAmount - tokenInUsd;
-            console.log(`Implied Swap Fee: $${impliedFee.toFixed(2)} (${(impliedFee/usdAmount*100).toFixed(2)}%)`);
           }
         }
       }
     }
   }
   
-  console.log(`Opened: ${trade.openTime}`);
+
   
-  if (trade.closeTime) {
-    console.log(`Closed: ${trade.closeTime}`);
-  }
+
   
   // Check for TP/SL events in the trade
   const hasTpslEvent = trade.events.some(evt => 
@@ -2140,25 +1902,7 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
           );
         }
         
-        console.log(`TP/SL Orders: ${isTP ? 'Take Profit' : ''}${isTP && isSL ? ' and ' : ''}${isSL ? 'Stop Loss' : ''}`);
-        
-        // Show all the TP/SL instruction parameters
-        console.log(`  Instruction: ${tpslData.instructionName}`);
-        console.log(`  Trigger Price: ${data.tpslTriggerPrice}`);
-        console.log(`  Order Type: ${isTP ? 'Take Profit' : 'Stop Loss'}`);
-        console.log(`  Size: ${actualSizePercentage} of position`);
-        
-        if (data.tpslCollateralUsdDelta && data.tpslCollateralUsdDelta !== '$0.00') 
-          console.log(`  Collateral USD Delta: ${data.tpslCollateralUsdDelta}`);
-        
-        if (data.tpslSizeUsdDelta && data.tpslSizeUsdDelta !== '$0.00')
-          console.log(`  Size USD Delta: ${data.tpslSizeUsdDelta}`);
-        
-        if (data.tpslCounter && data.tpslCounter !== '0')
-          console.log(`  Counter: ${data.tpslCounter}`);
-        
-        if (data.tpslRequestTime)
-          console.log(`  Request Time: ${data.tpslRequestTime}`);
+
       }
     }
   }
@@ -2187,42 +1931,18 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
       if (data.limitOrderInstructionData && data.limitOrderInstructionData.params) {
         const orderData = data.limitOrderInstructionData;
         
-        console.log(`Limit Order: Active`);
-        
-        // Show limit order parameters
-        if (orderData.params.price) {
-          console.log(`  Limit Price: $${BNToUSDRepresentation(orderData.params.price, USDC_DECIMALS)}`);
-        }
-        
-        if (orderData.params.size) {
-          console.log(`  Size: $${BNToUSDRepresentation(orderData.params.size, USDC_DECIMALS)}`);
-        }
-        
-        // Add any other relevant fields
-        if (orderData.params.orderType !== undefined) {
-          console.log(`  Order Type: ${orderData.params.orderType === 0 ? 'Buy' : 'Sell'}`);
-        }
+
       } else if (limitOrderEvent.event.name === 'FillLimitOrderEvent') {
         // For fill events, we can display information directly from the event
-        console.log(`Limit Order: Filled`);
-        if (data.price) {
-          console.log(`  Fill Price: ${data.price}`);
-        }
-        if (data.size) {
-          console.log(`  Size: ${data.size}`);
-        }
       } else {
-        console.log(`Limit Order: Set`);
       }
     } else {
-      console.log(`Limit Order: Set`);
     }
   }
   
-  console.log(`Events in trade: ${trade.events.length}`);
+
   
-  // Enhanced events summary
-  console.log("\nEvents:");
+
   trade.events.forEach((evt, i) => {
     if (evt && evt.event) {
       const eventData = evt.event.data;
@@ -2231,9 +1951,6 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
       
       // Special handling for PoolSwapEvent in trade events
       if (eventType === 'PoolSwapEvent' || eventType === 'PoolSwapExactOutEvent') {
-        console.log(`  ${i+1}. ${eventType}`);
-        console.log(`     Date: ${eventTime}`);
-        
         // Get tokens by custody addresses
         const receivingCustody = eventData.receivingCustodyKey || 'Unknown';
         const dispensingCustody = eventData.dispensingCustodyKey || 'Unknown';
@@ -2241,53 +1958,36 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
         const receivingSymbol = getAssetNameFromCustody(receivingCustody);
         const dispensingSymbol = getAssetNameFromCustody(dispensingCustody);
         
-        // Show the swap direction based on custody keys
-        console.log(`     Swap: ${receivingSymbol} → ${dispensingSymbol}`);
-        console.log(`     Pool: ${eventData.poolKey ? eventData.poolKey.substring(0, 8) + '...' : 'Unknown'}`);
-        
         // Format amounts with appropriate decimals - match amountIn with receivingCustody (token going in)
         if (eventData.amountIn) {
           const amountIn = Number(eventData.amountIn);
           const formattedAmount = formatTokenAmount(amountIn, receivingSymbol);
-          console.log(`     Amount In: ${formattedAmount} ${receivingSymbol}`);
         }
         
         // Match amountOut with dispensingCustody (token coming out)
         if (eventData.amountOut) {
           const amountOut = Number(eventData.amountOut);
           const formattedAmount = formatTokenAmount(amountOut, dispensingSymbol);
-          console.log(`     Amount Out: ${formattedAmount} ${dispensingSymbol}`);
         }
         
         // Show amount out after fees
         if (eventData.amountOutAfterFees) {
           const amountOutAfterFees = Number(eventData.amountOutAfterFees);
           const formattedAmount = formatTokenAmount(amountOutAfterFees, dispensingSymbol);
-          console.log(`     Amount Out After Fees: ${formattedAmount} ${dispensingSymbol}`);
-        }
-        
-        if (eventData.swapUsdAmount) {
-          console.log(`     Swap USD Amount: ${eventData.swapUsdAmount}`);
         }
         
         if (eventData.feeBps) {
           const feeBpsNum = Number(eventData.feeBps);
-          console.log(`     Fee: ${feeBpsNum / 100}% (${feeBpsNum} bps)`);
           
           // Calculate actual fee amount if available
           if (eventData.amountOutAfterFees && eventData.amountOut) {
             const feeAmount = Number(eventData.amountOut) - Number(eventData.amountOutAfterFees);
             const formattedFee = formatTokenAmount(feeAmount, dispensingSymbol);
-            console.log(`     Fee Amount: ${formattedFee} ${dispensingSymbol}`);
           }
         }
       }
       // Special handling for TP/SL events
       else if (eventType === 'InstantCreateTpslEvent' || eventType === 'InstantUpdateTpslEvent') {
-        console.log(`  ${i+1}. ${eventType}`);
-        console.log(`     Date: ${eventTime}`);
-        console.log(`     TP/SL Setting:`);
-        
         // For UPDATE events, retrieve triggerAboveThreshold from original CREATE event
         let actualTriggerAboveThreshold = eventData.tpslTriggerAboveThreshold;
         if (eventType === 'InstantUpdateTpslEvent') {
@@ -2300,12 +2000,6 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
         // Determine if Take Profit or Stop Loss
         const isTakeProfit = actualTriggerAboveThreshold === true;
         const orderType = isTakeProfit ? "Take Profit" : "Stop Loss";
-        console.log(`     Order Type: ${orderType}`);
-        
-        // Show trigger price
-        if (eventData.tpslTriggerPrice) {
-          console.log(`     Trigger Price: ${eventData.tpslTriggerPrice}`);
-        }
         
         // For update events, try to find the original create event to get correct values
         let actualEntirePosition = eventData.tpslEntirePosition;
@@ -2336,29 +2030,20 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
           );
         }
         
-        // Show size percentage
-        console.log(`     Size: ${actualSizePercentage} of position`);
-        
-        // Show specific TP/SL values if available (legacy support)
-        if (isTakeProfit && eventData.takeProfitPrice) {
-          console.log(`     Take Profit Price: ${eventData.takeProfitPrice}`);
-          if (eventData.takeProfitSizePercent) {
-            console.log(`     Take Profit Size: ${eventData.takeProfitSizePercent / 100}% of position`);
-          }
-        } else if (!isTakeProfit && eventData.stopLossPrice) {
-          console.log(`     Stop Loss Price: ${eventData.stopLossPrice}`);
-          if (eventData.stopLossSizePercent) {
-            console.log(`     Stop Loss Size: ${eventData.stopLossSizePercent / 100}% of position`);
-          }
-        }
       }
       // For regular events (not pool swap or TP/SL)
       else {
         // Determine if buy or sell
-        let action = "";
-        if (eventType.includes('Increase')) {
+        let action = "Buy"; // Default to Buy to avoid empty strings
+        if (eventType.includes('Increase') || eventType.includes('PreSwap')) {
           action = trade.positionSide === "Long" ? "Buy" : "Sell";
-        } else if (eventType.includes('Decrease') || eventType.includes('Liquidate')) {
+        } else if (eventType.includes('Decrease') || eventType.includes('Liquidate') || eventType.includes('PostSwap')) {
+          action = trade.positionSide === "Long" ? "Sell" : "Buy";
+        } else if (eventType.includes('FillLimitOrder')) {
+          // For limit orders, determine based on the trade direction
+          action = trade.positionSide === "Long" ? "Buy" : "Sell";
+        } else if (eventType.includes('Tpsl') || eventType.includes('TPSL')) {
+          // For TP/SL events, they are typically closing events
           action = trade.positionSide === "Long" ? "Sell" : "Buy";
         }
         
@@ -2367,30 +2052,30 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
         if (eventType.includes('Instant')) {
           // All Instant events are market orders by definition
           orderType = "Market";
+        } else if (eventType.includes('FillLimitOrder')) {
+          orderType = "Limit";
+        } else if (eventType.includes('Liquidate')) {
+          // Liquidations are always forced liquidation orders
+          orderType = "Liquidation";
+        } else if (eventType.includes('Tpsl') || eventType.includes('TPSL')) {
+          // TP/SL events - simplified approach
+          orderType = "Take Profit";
         } else if (eventType.includes('Increase') || eventType.includes('Decrease')) {
           // For non-Instant events, check positionRequestType if available
           if (eventData.positionRequestType !== undefined) {
             orderType = eventData.positionRequestType === 0 ? "Market" : "Limit";
           }
-        } else if (eventType.includes('Liquidate')) {
-          // Liquidations are always forced market orders
-          orderType = "Market";
         }
         
-        console.log(`  ${i+1}. ${eventType}`);
-        console.log(`     Date: ${eventTime}`);
-        console.log(`     Action: ${action}`);
-        console.log(`     Type: ${orderType}`);
+
         
         // Display token information
         if (eventData.positionMint) {
           const symbol = getSymbolFromMint(eventData.positionMint);
-          console.log(`     Trading: ${symbol}${eventData.positionMint ? ` (${eventData.positionMint.substring(0, 8)}...)` : ''}`);
         }
         
         if (eventData.positionRequestMint) {
           const symbol = getSymbolFromMint(eventData.positionRequestMint);
-          console.log(`     Using: ${symbol}${eventData.positionRequestMint ? ` (${eventData.positionRequestMint.substring(0, 8)}...)` : ''}`);
         }
         
         // Get sizes - with special handling for liquidation events
@@ -2405,18 +2090,11 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
         const price = parseUsdValue(eventData.price || "0");
         const notionalSize = price > 0 ? sizeUsd / price : 0;
         
-        // Only show notional size for increase events (not for decrease events)
-        if (eventType.includes('Increase')) {
-          console.log(`     Size (Notional): ${notionalSize.toFixed(6)} ${trade.asset || ''}`);
-        }
-        console.log(`     Size (USD): $${sizeUsd.toFixed(2)}`);
-        console.log(`     Price: ${eventData.price || "N/A"}`);
+
         
         // Add payout information for decrease/liquidation events
         if (eventType.includes('Decrease') || eventType.includes('Liquidate')) {
-          if (eventData.transferAmountUsd) {
-            console.log(`     Payout (USD): $${parseUsdValue(eventData.transferAmountUsd).toFixed(2)}`);
-          }
+
           
           if (eventData.transferToken) {
             const tokenAmount = Number(eventData.transferToken);
@@ -2440,57 +2118,28 @@ async function printDetailedTradeInfo(trade: ITrade, index: number) {
             }
             
             const formattedAmount = (tokenAmount / Math.pow(10, decimals)).toFixed(decimals === 9 ? 6 : 2);
-            console.log(`     Payout (Token): ${formattedAmount} ${tokenSymbol}`);
           }
         }
         
         // Handle fees display - with special handling for liquidation events
         const fee = parseUsdValue(eventData.feeUsd || "0");
-        console.log(`     Fee: $${fee.toFixed(2)}`);
         
         if (eventType.includes('Liquidate') && eventData.liquidationFeeUsd) {
           const liquidationFee = parseUsdValue(eventData.liquidationFeeUsd);
-          console.log(`     Liquidation Fee: $${liquidationFee.toFixed(2)}`);
         }
         
         // Add collateral information for relevant events - simplified
         if (eventType.includes('Increase') || eventType.includes('Decrease')) {
           const collateralUsd = parseUsdValue(eventData.collateralUsdDelta || "0");
-          console.log(`     Collateral (USD): $${collateralUsd.toFixed(2)}`);
         }
         
         // Show profit/loss information for decrease events
         if ((eventType.includes('Decrease') || eventType.includes('Liquidate')) && eventData.pnlDelta) {
           const pnlDelta = parseUsdValue(eventData.pnlDelta);
-          console.log(`     PnL: $${pnlDelta.toFixed(2)} (${eventData.hasProfit ? 'Profit' : 'Loss'})`);
         }
       }
     }
   });
-
-  // Add raw events section
-  console.log("\nRaw Events Data:");
-  console.log("─".repeat(60));
-  trade.events.forEach((evt, i) => {
-    if (evt && evt.event) {
-      console.log(`\n${i+1}. Event: ${evt.event.name}`);
-      console.log(`   Transaction: ${evt.tx.signature}`);
-      console.log(`   Block Time: ${evt.tx.blockTime || "Unknown"}`);
-      console.log(`   Slot: ${evt.tx.slot || "Unknown"}`);
-      console.log(`   Fee: ${evt.tx.fee || "Unknown"}`);
-      console.log(`   Raw Event Data:`);
-      
-      if (evt.event.data) {
-        // Pretty print the raw event data with proper indentation
-        const eventDataString = JSON.stringify(evt.event.data, null, 2);
-        const indentedData = eventDataString.split('\n').map(line => `     ${line}`).join('\n');
-        console.log(indentedData);
-      } else {
-        console.log(`     (No event data)`);
-      }
-    }
-  });
-  console.log("─".repeat(60));
 }
 
 // Helper function to get token symbol from mint address
@@ -2584,18 +2233,13 @@ function getAssetNameFromCustody(custodyPubkey: string | undefined): string {
  * Note: FROM_DATE must be older (earlier) than TO_DATE for a valid chronological range
  */
 
-// ====== CONFIGURATION ====== 
-const FROM_DATE = "01.05.2025"; // Start date - where to begin analysis (older date)
-const TO_DATE = "01.08.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
-const WALLET_ADDRESS = "9rmEneN7qei61rnyTTCaR45u9Dunx21cUuPi5A2NBNiP"; // Wallet to analyze
+// ============================
+// const FROM_DATE = "01.01.2025"; // Start date - where to begin analysis (older date)
+// const TO_DATE = "08.07.2025"; // End date - where to finish analysis (newer date), set to undefined for "now"
+// const WALLET_ADDRESS = "CCzT1sYFhUMftUYXciKWwjSNVfsPetygMpmRRHpXNRYR"; // Wallet to analyze
 // ============================
 
-// Run the example with date support and wallet address
-analyzeTradeHistory(FROM_DATE, WALLET_ADDRESS, TO_DATE).then(() => {
-  console.log("Trade analysis complete");
-}).catch(err => {
-  console.error("Error analyzing trades:", err);
-});
+
 
 // Helper function to calculate TP/SL size percentage
 function calculateTpslSizePercentage(
@@ -2618,7 +2262,205 @@ function calculateTpslSizePercentage(
   return "Partial position";
 }
 
-// Add parallel processing functions for faster execution
+// Add new interfaces for JSON output format
+interface JsonEvent {
+  timestamp: string;
+  transaction_signature: string;
+  event_name: string;
+  action: string;
+  type: string;
+  size_usd: number;
+  price: number;
+  fee_usd: number;
+  pnl_usd?: number;
+  has_profit?: boolean;
+}
+
+interface JsonPosition {
+  trade_id: string;
+  position_key: string;
+  symbol: string;
+  direction: string;
+  status: string;
+  collateral_token: string;
+  size_usd: number;
+  notional_size: number;
+  collateral_usd: number;
+  leverage: number;
+  entry_price: number;
+  exit_price?: number;
+  realized_pnl?: number;
+  realized_pnl_percent?: number;
+  total_fees: number;
+  has_profit?: boolean;
+  entry_time: string;
+  exit_time?: string;
+  events: JsonEvent[];
+}
+
+interface JsonOutput {
+  wallet_address: string;
+  sync_timestamp: string;
+  positions: JsonPosition[];
+}
+
+// Function to transform trades to JSON format
+function transformTradesToJson(
+  activeTrades: ITrade[], 
+  completedTrades: ITrade[], 
+  walletAddress: string
+): JsonOutput {
+  const allTrades = [...completedTrades, ...activeTrades];
+  
+  const positions: JsonPosition[] = allTrades.map(trade => {
+    // Transform events to simplified JSON format
+    const jsonEvents: JsonEvent[] = trade.events
+      .filter(evt => evt?.event && evt?.tx)
+      .map(evt => {
+        const eventData = evt!.event!.data;
+        const eventName = evt!.event!.name;
+        
+        // Determine action based on event type
+        let action = "Buy"; // Default to Buy to avoid constraint violations
+        if (eventName.includes('Increase') || eventName.includes('PreSwap')) {
+          action = trade.positionSide === "Long" ? "Buy" : "Sell";
+        } else if (eventName.includes('Decrease') || eventName.includes('Liquidate') || eventName.includes('PostSwap')) {
+          action = trade.positionSide === "Long" ? "Sell" : "Buy";
+        } else if (eventName.includes('FillLimitOrder')) {
+          // For limit orders, determine based on the trade direction
+          action = trade.positionSide === "Long" ? "Buy" : "Sell";
+        } else if (eventName.includes('Tpsl') || eventName.includes('TPSL')) {
+          // For TP/SL events, they are typically closing events
+          action = trade.positionSide === "Long" ? "Sell" : "Buy";
+        }
+        
+        // Determine type (Market vs Limit)
+        let type = "Market"; // Default to Market
+        if (eventName.includes('Instant')) {
+          type = "Market";
+        } else if (eventName.includes('FillLimitOrder')) {
+          type = "Limit";
+        } else if (eventName.includes('Liquidate')) {
+          type = "Liquidation";
+        } else if (eventName.includes('Tpsl') || eventName.includes('TPSL')) {
+          // Determine if it's Take Profit or Stop Loss based on trigger direction
+          // This is a simplified approach - could be enhanced with more context
+          type = "Take Profit"; // Default for TP/SL events
+        } else if (eventData.positionRequestType !== undefined) {
+          type = eventData.positionRequestType === 0 ? "Market" : "Limit";
+        }
+        
+        // Get size USD - handle liquidation events differently
+        let sizeUsd = 0;
+        if (eventName.includes('Liquidate')) {
+          sizeUsd = parseUsdValue(eventData.positionSizeUsd || "0");
+        } else {
+          sizeUsd = parseUsdValue(eventData.sizeUsdDelta || "0");
+        }
+        
+        // Get price and fee
+        const price = parseUsdValue(eventData.price || "0");
+        const feeUsd = parseUsdValue(eventData.feeUsd || "0");
+        
+        // Get PnL data for events that have it (decrease and liquidation events)
+        let pnlUsd: number | undefined;
+        let hasProfit: boolean | undefined;
+        
+        if (eventName.includes('Decrease') || eventName.includes('Liquidate')) {
+          // Jupiter provides PnL data in multiple possible fields
+          if (eventData.pnlUsd) {
+            pnlUsd = parseUsdValue(eventData.pnlUsd);
+            hasProfit = eventData.hasProfit !== undefined ? eventData.hasProfit : (pnlUsd > 0);
+          } else if (eventData.pnlDelta) {
+            pnlUsd = parseUsdValue(eventData.pnlDelta);
+            hasProfit = eventData.hasProfit !== undefined ? eventData.hasProfit : (pnlUsd > 0);
+          } else if (eventData.realizedPnl) {
+            pnlUsd = parseUsdValue(eventData.realizedPnl);
+            hasProfit = eventData.hasProfit !== undefined ? eventData.hasProfit : (pnlUsd > 0);
+          }
+        }
+        
+        return {
+          timestamp: evt!.tx.blockTime || new Date().toISOString(),
+          transaction_signature: evt!.tx.signature,
+          event_name: eventName,
+          action,
+          type,
+          size_usd: Math.round(sizeUsd * 100) / 100, // Round to 2 decimal places
+          price: Math.round(price * 100) / 100, // Round to 2 decimal places
+          fee_usd: Math.round(feeUsd * 100) / 100, // Round to 2 decimal places
+          ...(pnlUsd !== undefined && { pnl_usd: Math.round(pnlUsd * 100) / 100 }),
+          ...(hasProfit !== undefined && { has_profit: hasProfit })
+        };
+      });
+    
+    // Get collateral token from the first event
+    let collateralToken = "Unknown";
+    const firstEvent = trade.events.find(evt => 
+      evt?.event?.name === 'IncreasePositionEvent' || 
+      evt?.event?.name === 'InstantIncreasePositionEvent'
+    );
+    
+    if (firstEvent?.event?.data?.positionCollateralCustody) {
+      collateralToken = getAssetNameFromCustody(firstEvent.event.data.positionCollateralCustody);
+    }
+    
+    // Format symbol as ASSET-PERP
+    const symbol = trade.asset ? `${trade.asset}-PERP` : "UNKNOWN-PERP";
+    
+    // Use finalSize for completed trades, sizeUsd for active trades
+    const displaySize = (trade.status !== "active" && trade.finalSize) ?
+      trade.finalSize : trade.sizeUsd;
+    
+    // Calculate notional size (actual token amount) = position size USD / entry price
+    const notionalSize = trade.entryPrice > 0 ? displaySize / trade.entryPrice : 0;
+    
+    // Build the position object with proper field ordering to match the desired structure
+    const position: JsonPosition = {
+      trade_id: trade.id,
+      position_key: trade.positionKey,
+      symbol,
+      direction: trade.positionSide.toLowerCase(),
+      status: trade.status,
+      collateral_token: collateralToken,
+      size_usd: Math.round(displaySize * 100) / 100, // Round to 2 decimal places
+      notional_size: Math.round(notionalSize * 100) / 100, // Round to 2 decimal places for consistency
+      collateral_usd: Math.round(trade.collateralUsd * 100) / 100, // Round to 2 decimal places
+      leverage: Math.round(trade.leverage * 100) / 100, // Round to 2 decimal places
+      entry_price: Math.round(trade.entryPrice * 100) / 100,
+      // Add exit_price right after entry_price for completed trades
+      ...(trade.status !== "active" && trade.exitPrice && {
+        exit_price: Math.round(trade.exitPrice * 100) / 100
+      }),
+      // Add realized_pnl after exit_price for completed trades
+      ...(trade.status !== "active" && trade.pnl !== undefined && {
+        realized_pnl: Math.round(trade.pnl * 100) / 100,
+        realized_pnl_percent: trade.collateralUsd > 0 ? Math.round((trade.pnl / trade.collateralUsd) * 100 * 100) / 100 : 0
+      }),
+      total_fees: Math.round((trade.totalFees || 0) * 100) / 100,
+      // Add has_profit for completed trades
+      ...(trade.status !== "active" && trade.hasProfit !== undefined && {
+        has_profit: trade.hasProfit
+      }),
+      entry_time: trade.openTime || new Date().toISOString(),
+      // Add exit_time after entry_time for completed trades
+      ...(trade.status !== "active" && trade.closeTime && {
+        exit_time: trade.closeTime
+      }),
+      events: jsonEvents
+    };
+    
+    return position;
+  });
+  
+  return {
+    wallet_address: walletAddress,
+    sync_timestamp: new Date().toISOString(),
+    positions
+  };
+}
+
+// Add after the existing getPositionEvents function, before the fetchTransactionWithRetry function
 
 /**
  * PARALLEL VERSION - Process multiple PDAs concurrently for faster execution
@@ -2669,7 +2511,7 @@ export async function getPositionEventsParallel(fromDateString?: string, walletA
   for (let i = 0; i < positionPdas.length; i += CONCURRENCY_LIMIT) {
     const batch = positionPdas.slice(i, i + CONCURRENCY_LIMIT);
     
-    const batchPromises = batch.map(pda => processPdaParallelAnalyze(pda, fromDate, toDate));
+    const batchPromises = batch.map(pda => processPdaParallel(pda, fromDate, toDate));
     const batchResults = await Promise.all(batchPromises);
     
     results.push(...batchResults);
@@ -2690,6 +2532,7 @@ export async function getPositionEventsParallel(fromDateString?: string, walletA
     return aTime - bTime;
   });
   
+
   // Filter and return position events using Set for O(1) lookup performance
   return allEvents.filter(data => 
     data?.event?.name && POSITION_EVENT_NAMES.has(data.event.name)
@@ -2697,11 +2540,11 @@ export async function getPositionEventsParallel(fromDateString?: string, walletA
 }
 
 /**
- * Process a single PDA with parallel transaction processing for analyze.ts
+ * Process a single PDA with parallel transaction processing
  */
-async function processPdaParallelAnalyze(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
+async function processPdaParallel(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
   // Fetch all signatures for this PDA first
-  const allSignatures = await fetchAllSignaturesParallelAnalyze(currentPda, fromDate, toDate);
+  const allSignatures = await fetchAllSignaturesParallel(currentPda, fromDate, toDate);
   
   if (allSignatures.length === 0) {
     return [];
@@ -2720,7 +2563,7 @@ async function processPdaParallelAnalyze(currentPda: any, fromDate: Date, toDate
     if (validBatch.length === 0) continue;
     
     // Process this batch of transactions in parallel
-    const batchPromises = validBatch.map(sigInfo => processTransactionParallelAnalyze(sigInfo));
+    const batchPromises = validBatch.map(sigInfo => processTransactionParallel(sigInfo));
     const batchResults = await Promise.all(batchPromises);
     
     // Flatten and add to results
@@ -2737,9 +2580,9 @@ async function processPdaParallelAnalyze(currentPda: any, fromDate: Date, toDate
 }
 
 /**
- * Fetch all signatures for a PDA with optimized batch processing for analyze.ts
+ * Fetch all signatures for a PDA with optimized batch processing
  */
-async function fetchAllSignaturesParallelAnalyze(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
+async function fetchAllSignaturesParallel(currentPda: any, fromDate: Date, toDate: Date): Promise<any[]> {
   const allSignatures: any[] = [];
   let beforeSignature: string | undefined = undefined;
   let hasMoreTransactions = true;
@@ -2787,9 +2630,9 @@ async function fetchAllSignaturesParallelAnalyze(currentPda: any, fromDate: Date
 }
 
 /**
- * Process a single transaction with all its events for analyze.ts
+ * Process a single transaction with all its events
  */
-async function processTransactionParallelAnalyze(sigInfo: any): Promise<any[]> {
+async function processTransactionParallel(sigInfo: any): Promise<any[]> {
   try {
     const tx = await fetchTransactionWithRetry(sigInfo.signature);
     
@@ -2820,6 +2663,15 @@ async function processTransactionParallelAnalyze(sigInfo: any): Promise<any[]> {
               feeInLamports: tx.meta!.fee
             }
           };
+          
+          // Handle TP/SL events (simplified for parallel processing)
+          if (formattedEvent && (
+              formattedEvent.name === 'InstantCreateTpslEvent' || 
+              formattedEvent.name === 'InstantUpdateTpslEvent')
+          ) {
+            // Add basic TP/SL data extraction here if needed
+            // For now, keeping it simple for performance
+          }
           
           return eventWithTx;
         } catch (error) {
